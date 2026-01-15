@@ -1,0 +1,30 @@
+# name: test/sql/scanner/execute_function.test
+# description: Test altertable_execute function
+# group: [scanner]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Test that altertable_execute works for DDL statements
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE IF NOT EXISTS __test_execute_table (id INTEGER)')
+
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS __test_execute_table')
+
+# Clean up
+statement ok
+DETACH test_db

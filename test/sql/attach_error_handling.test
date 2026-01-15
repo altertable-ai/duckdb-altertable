@@ -1,0 +1,24 @@
+# name: test/sql/storage/attach_error_handling.test
+# description: Test error handling for ATTACH
+# group: [storage]
+
+require altertable
+
+# Note: ATTACH itself will succeed even with invalid credentials
+# because it only sets up the catalog metadata. The connection
+# is not established until you try to query the database.
+
+# Test that ATTACH succeeds (connection validation happens later)
+statement ok
+ATTACH 'host=invalid.server port=443 user=test password=test' AS test_db (TYPE ALTERTABLE)
+
+# Clean up
+statement ok
+DETACH test_db
+
+# Verify we can attach and detach multiple times
+statement ok
+ATTACH 'host=localhost port=1 user=test password=test' AS test_db2 (TYPE ALTERTABLE)
+
+statement ok
+DETACH test_db2

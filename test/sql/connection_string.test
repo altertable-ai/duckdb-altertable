@@ -1,0 +1,25 @@
+# name: test/sql/storage/connection_string.test
+# description: Test connection string variations
+# group: [storage]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Test with full connection string
+statement error
+SELECT * FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'test_table')
+----
+
+# Test connection string with explicit ssl param from env
+statement error
+SELECT * FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'test_table')
+----

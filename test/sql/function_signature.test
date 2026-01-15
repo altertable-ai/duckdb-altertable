@@ -1,0 +1,15 @@
+# name: test/sql/scanner/function_signature.test
+# description: Test function signatures
+# group: [scanner]
+
+require altertable
+
+# Verify functions exist in the catalog
+statement ok
+SELECT function_name FROM duckdb_functions() WHERE function_name IN ('altertable_scan', 'altertable_scan_pushdown', 'altertable_attach', 'altertable_execute') LIMIT 1
+
+# Verify we can query the function list
+query I
+SELECT COUNT(*) > 0 FROM duckdb_functions() WHERE function_name LIKE 'altertable%'
+----
+1

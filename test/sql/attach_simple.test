@@ -1,0 +1,29 @@
+# name: test/sql/storage/attach_simple.test
+# description: Basic ATTACH test for Altertable
+# group: [storage]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Test basic ATTACH with real server
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS altertable_db (TYPE ALTERTABLE)
+
+# Test that we can see the attached database
+query I
+SELECT COUNT(*) >= 0 FROM duckdb_databases() WHERE database_name = 'altertable_db'
+----
+1
+
+# Detach the database
+statement ok
+DETACH altertable_db

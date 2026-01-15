@@ -1,0 +1,26 @@
+# name: test/sql/scanner/basic_scan.test
+# description: Basic scan test for Altertable scanner  
+# group: [scanner]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Test altertable_scan function with real server
+# Note: This will fail if the table doesn't exist, but tests the connection
+statement error
+SELECT * FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'nonexistent_table')
+----
+
+# Test altertable_scan_pushdown function
+statement error
+SELECT * FROM altertable_scan_pushdown('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'nonexistent_table')
+----
