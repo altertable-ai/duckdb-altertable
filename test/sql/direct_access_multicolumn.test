@@ -1,0 +1,94 @@
+# name: test/sql/direct_access_multicolumn.test
+# description: Test direct table access with multiple column types
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Attach database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create table with multiple column types
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_table_multi')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_table_multi (id INTEGER, name VARCHAR, price DOUBLE)')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_table_multi VALUES (1, ''Product A'', 19.99), (2, ''Product B'', 29.50), (3, ''Product C'', 15.00)')
+
+# Direct table access with multiple rows and columns
+query ITR
+SELECT id, name, price FROM test_db.main.test_table_multi ORDER BY id
+----
+1	Product A	19.99
+2	Product B	29.50
+3	Product C	15.00
+
+# Direct table access with WHERE clause
+query IT
+SELECT id, name FROM test_db.main.test_table_multi WHERE price < 25 ORDER BY id
+----
+1	Product A
+3	Product C
+
+# Test projection pushdown - select specific columns
+query T
+SELECT name FROM test_db.main.test_table_multi WHERE id = 2
+----
+Product B
+
+# Test with multiple WHERE conditions
+query ITR
+SELECT id, name, price FROM test_db.main.test_table_multi WHERE price < 25 AND price < 20 ORDER BY id
+----
+1	Product A	19.99
+3	Product C	15.00
+
+# Test LIMIT with direct access
+query I
+SELECT id FROM test_db.main.test_table_multi ORDER BY id LIMIT 2
+----
+1
+2
+
+# Test OFFSET with direct access
+query I
+SELECT id FROM test_db.main.test_table_multi ORDER BY id LIMIT 2 OFFSET 1
+----
+2
+3
+
+# Test ORDER BY on different columns
+query IT
+SELECT id, name FROM test_db.main.test_table_multi ORDER BY name
+----
+1	Product A
+2	Product B
+3	Product C
+
+# Test ORDER BY DESC
+query IT
+SELECT id, name FROM test_db.main.test_table_multi ORDER BY price DESC
+----
+2	Product B
+1	Product A
+3	Product C
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_table_multi')
+
+statement ok
+DETACH test_db

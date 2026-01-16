@@ -1,0 +1,105 @@
+# name: test/sql/direct_access_null.test
+# description: Test direct table access with NULL values
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Attach database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create table with potential NULL values
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_table_nulls')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_table_nulls (id INTEGER, name VARCHAR, value INTEGER)')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_table_nulls VALUES (1, ''data'', 100), (2, NULL, 200), (3, ''more data'', NULL), (4, NULL, NULL)')
+
+# Direct table access with NULL values
+query ITI
+SELECT * FROM test_db.main.test_table_nulls ORDER BY id
+----
+1	data	100
+2	NULL	200
+3	more data	NULL
+4	NULL	NULL
+
+# Filter on NULL values in string column
+query I
+SELECT id FROM test_db.main.test_table_nulls WHERE name IS NULL ORDER BY id
+----
+2
+4
+
+# Filter on NOT NULL values
+query I
+SELECT id FROM test_db.main.test_table_nulls WHERE name IS NOT NULL ORDER BY id
+----
+1
+3
+
+# Filter on NULL values in integer column
+query I
+SELECT id FROM test_db.main.test_table_nulls WHERE value IS NULL ORDER BY id
+----
+3
+4
+
+# Test COALESCE with NULL values
+query IT
+SELECT id, COALESCE(name, 'unknown') as name FROM test_db.main.test_table_nulls ORDER BY id
+----
+1	data
+2	unknown
+3	more data
+4	unknown
+
+# Test aggregation with NULL values - use COUNT on column
+query I
+SELECT COUNT(id) FROM test_db.main.test_table_nulls
+----
+4
+
+# Test COUNT with column (excludes NULLs)
+query I
+SELECT COUNT(name) FROM test_db.main.test_table_nulls
+----
+2
+
+# Test SUM with NULL values (NULLs are ignored)
+query I
+SELECT SUM(value) FROM test_db.main.test_table_nulls
+----
+300
+
+# Test multiple NULL conditions
+query I
+SELECT id FROM test_db.main.test_table_nulls WHERE name IS NULL AND value IS NULL
+----
+4
+
+# Test mixed NULL conditions
+query I
+SELECT id FROM test_db.main.test_table_nulls WHERE name IS NOT NULL AND value IS NULL
+----
+3
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_table_nulls')
+
+statement ok
+DETACH test_db
