@@ -68,8 +68,8 @@ LogicalType AltertableUtils::RemoveAlias(const LogicalType &type) {
 }
 
 LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransaction> transaction,
-                                             optional_ptr<AltertableSchemaEntry> schema,
-                                             const AltertableTypeData &type_info, AltertableType &altertable_type) {
+                                               optional_ptr<AltertableSchemaEntry> schema,
+                                               const AltertableTypeData &type_info, AltertableType &altertable_type) {
 	auto &pgtypename = type_info.type_name;
 
 	// altertable array types start with an _
@@ -97,7 +97,8 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 		child_type_info.type_name = pgtypename.substr(1);
 		child_type_info.type_modifier = type_info.type_modifier;
 		AltertableType child_altertable_type;
-		auto child_type = AltertableUtils::TypeToLogicalType(transaction, schema, child_type_info, child_altertable_type);
+		auto child_type =
+		    AltertableUtils::TypeToLogicalType(transaction, schema, child_type_info, child_altertable_type);
 		// construct the child type based on the number of dimensions
 		for (idx_t i = 1; i < dimensions; i++) {
 			AltertableType new_altertable_type;
@@ -112,7 +113,7 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 
 	// Convert type name to uppercase for case-insensitive comparison
 	auto type_upper = StringUtil::Upper(pgtypename);
-	
+
 	// DuckDB type names (from information_schema)
 	if (type_upper == "BOOLEAN" || pgtypename == "bool") {
 		return LogicalType::BOOLEAN;

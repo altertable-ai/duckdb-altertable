@@ -21,7 +21,7 @@ enum class AltertableReadResult { FINISHED, HAVE_MORE_TUPLES };
 
 struct AltertableResultReader {
 	explicit AltertableResultReader(AltertableConnection &con_p, const vector<column_t> &column_ids,
-	                              const AltertableBindData &bind_data)
+	                                const AltertableBindData &bind_data)
 	    : con(con_p), column_ids(column_ids), bind_data(bind_data) {
 	}
 	virtual ~AltertableResultReader() = default;

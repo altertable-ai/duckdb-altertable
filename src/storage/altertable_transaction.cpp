@@ -8,7 +8,7 @@
 namespace duckdb {
 
 AltertableTransaction::AltertableTransaction(AltertableCatalog &altertable_catalog, TransactionManager &manager,
-                                         ClientContext &context)
+                                             ClientContext &context)
     : Transaction(manager, context), access_mode(altertable_catalog.access_mode) {
 	connection = altertable_catalog.GetConnectionPool().GetConnection();
 }

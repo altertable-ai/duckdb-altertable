@@ -5,7 +5,8 @@
 
 namespace duckdb {
 
-AltertableCatalogSet::AltertableCatalogSet(Catalog &catalog, bool is_loaded_p) : catalog(catalog), is_loaded(is_loaded_p) {
+AltertableCatalogSet::AltertableCatalogSet(Catalog &catalog, bool is_loaded_p)
+    : catalog(catalog), is_loaded(is_loaded_p) {
 }
 
 optional_ptr<CatalogEntry> AltertableCatalogSet::GetEntry(AltertableTransaction &transaction, const string &name) {
@@ -78,7 +79,8 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 	entries.erase(info.name);
 }
 
-void AltertableCatalogSet::Scan(AltertableTransaction &transaction, const std::function<void(CatalogEntry &)> &callback) {
+void AltertableCatalogSet::Scan(AltertableTransaction &transaction,
+                                const std::function<void(CatalogEntry &)> &callback) {
 	TryLoadEntries(transaction);
 	lock_guard<mutex> l(entry_lock);
 	for (auto &entry : entries) {
@@ -87,7 +89,7 @@ void AltertableCatalogSet::Scan(AltertableTransaction &transaction, const std::f
 }
 
 optional_ptr<CatalogEntry> AltertableCatalogSet::CreateEntry(AltertableTransaction &transaction,
-                                                           shared_ptr<CatalogEntry> entry) {
+                                                             shared_ptr<CatalogEntry> entry) {
 	lock_guard<mutex> l(entry_lock);
 	auto result = transaction.ReferenceEntry(entry);
 	if (result->name.empty()) {
@@ -110,7 +112,7 @@ AltertableInSchemaSet::AltertableInSchemaSet(AltertableSchemaEntry &schema, bool
 }
 
 optional_ptr<CatalogEntry> AltertableInSchemaSet::CreateEntry(AltertableTransaction &transaction,
-                                                            shared_ptr<CatalogEntry> entry) {
+                                                              shared_ptr<CatalogEntry> entry) {
 	entry->internal = schema.internal;
 	return AltertableCatalogSet::CreateEntry(transaction, std::move(entry));
 }

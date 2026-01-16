@@ -1,6 +1,6 @@
-# name: test/sql/scanner/function_signature.test
+# name: test/sql/function_signature.test
 # description: Test function signatures
-# group: [scanner]
+# group: [sql]
 
 require altertable
 

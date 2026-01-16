@@ -1,6 +1,6 @@
-# name: test/sql/scanner/basic_scan.test
-# description: Basic scan test for Altertable scanner  
-# group: [scanner]
+# name: test/sql/basic_scan.test
+# description: Basic scan test for Altertable scanner
+# group: [sql]
 
 require altertable
 

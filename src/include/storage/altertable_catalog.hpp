@@ -21,12 +21,12 @@ class AltertableSchemaEntry;
 class AltertableCatalog : public Catalog {
 public:
 	explicit AltertableCatalog(AttachedDatabase &db_p, string connection_string, string attach_path,
-	                         AccessMode access_mode, string schema_to_load);
-	~AltertableCatalog();
+	                           AccessMode access_mode, string schema_to_load);
+	~AltertableCatalog() override;
 
 	string connection_string;
 	string attach_path;
-	string remote_catalog;  // The catalog name from dbname parameter
+	string remote_catalog; // The catalog name from dbname parameter
 	AccessMode access_mode;
 
 public:
@@ -63,7 +63,7 @@ public:
 	AltertableVersion GetAltertableVersion() const {
 		return version;
 	}
-	
+
 	const string &GetRemoteCatalog() const {
 		return remote_catalog;
 	}

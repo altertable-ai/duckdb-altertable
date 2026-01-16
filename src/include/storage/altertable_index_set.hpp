@@ -17,7 +17,9 @@ class TableCatalogEntry;
 
 class AltertableIndexSet : public AltertableInSchemaSet {
 public:
-	AltertableIndexSet(AltertableSchemaEntry &schema, unique_ptr<AltertableResultSlice> index_result = nullptr);
+	~AltertableIndexSet() override = default;
+	explicit AltertableIndexSet(AltertableSchemaEntry &schema,
+	                            unique_ptr<AltertableResultSlice> index_result = nullptr);
 
 public:
 	static string GetInitializeQuery(const string &schema = string());

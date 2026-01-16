@@ -1,1 +1,31 @@
-duckdb/.clang-format
+---
+BasedOnStyle: LLVM
+SortIncludes: false
+TabWidth: 4
+IndentWidth: 4
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: false
+---
+Language: Cpp
+UseTab: ForIndentation
+DerivePointerAlignment: false
+PointerAlignment: Right
+AlignConsecutiveMacros: true
+AlignTrailingComments: true
+AllowAllArgumentsOnNextLine: true
+AllowAllConstructorInitializersOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+AlignAfterOpenBracket: Align
+SpaceBeforeCpp11BracedList: true
+SpaceBeforeCtorInitializerColon: true
+SpaceBeforeInheritanceColon: true
+SpacesInAngles: false
+SpacesInCStyleCastParentheses: false
+SpacesInConditionalStatement: false
+AllowShortLambdasOnASingleLine: Inline
+AllowShortLoopsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: Yes
+IncludeBlocks: Regroup
+AccessModifierOffset: -4
+---
+

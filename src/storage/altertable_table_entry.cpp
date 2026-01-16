@@ -33,7 +33,7 @@ unique_ptr<BaseStatistics> AltertableTableEntry::GetStatistics(ClientContext &co
 }
 
 void AltertableTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &, LogicalProjection &, LogicalUpdate &,
-                                               ClientContext &) {
+                                                 ClientContext &) {
 }
 
 TableFunction AltertableTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
@@ -92,6 +92,5 @@ TableStorageInfo AltertableTableEntry::GetStorageInfo(ClientContext &context) {
 	}
 	return result;
 }
-
 
 } // namespace duckdb

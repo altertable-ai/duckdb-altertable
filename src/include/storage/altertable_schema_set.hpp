@@ -16,6 +16,7 @@ struct CreateSchemaInfo;
 
 class AltertableSchemaSet : public AltertableCatalogSet {
 public:
+	~AltertableSchemaSet() override = default;
 	explicit AltertableSchemaSet(Catalog &catalog, string schema_to_load);
 
 public:

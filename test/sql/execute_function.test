@@ -1,6 +1,6 @@
-# name: test/sql/scanner/execute_function.test
+# name: test/sql/execute_function.test
 # description: Test altertable_execute function
-# group: [scanner]
+# group: [sql]
 
 require altertable
 

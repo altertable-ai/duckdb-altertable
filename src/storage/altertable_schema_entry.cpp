@@ -15,8 +15,8 @@ AltertableSchemaEntry::AltertableSchemaEntry(Catalog &catalog, CreateSchemaInfo 
 }
 
 AltertableSchemaEntry::AltertableSchemaEntry(Catalog &catalog, CreateSchemaInfo &info,
-                                         unique_ptr<AltertableResultSlice> tables,
-                                         unique_ptr<AltertableResultSlice> indexes)
+                                             unique_ptr<AltertableResultSlice> tables,
+                                             unique_ptr<AltertableResultSlice> indexes)
     : SchemaCatalogEntry(catalog, info), tables(*this, std::move(tables)), indexes(*this, std::move(indexes)) {
 }
 
@@ -44,7 +44,7 @@ void AltertableSchemaEntry::TryDropEntry(ClientContext &context, CatalogType cat
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateTable(CatalogTransaction transaction,
-                                                            BoundCreateTableInfo &info) {
+                                                              BoundCreateTableInfo &info) {
 	auto &altertable_transaction = GetAltertableTransaction(transaction);
 	auto &base_info = info.Base();
 	auto table_name = base_info.table;
@@ -56,13 +56,14 @@ optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateTable(CatalogTransaction
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateFunction(CatalogTransaction transaction,
-                                                               CreateFunctionInfo &info) {
+                                                                 CreateFunctionInfo &info) {
 	throw BinderException("Altertable databases do not support creating functions");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateIndex(CatalogTransaction transaction, CreateIndexInfo &info,
-                                                            TableCatalogEntry &table) {
-	throw BinderException("Altertable databases do not support creating indexes locally - use altertable_execute to create indexes on the remote server");
+                                                              TableCatalogEntry &table) {
+	throw BinderException("Altertable databases do not support creating indexes locally - use altertable_execute to "
+	                      "create indexes on the remote server");
 }
 
 string GetCreateViewSQL(AltertableSchemaEntry &schema, CreateViewInfo &info) {
@@ -108,31 +109,32 @@ optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateView(CatalogTransaction 
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateType(CatalogTransaction transaction, CreateTypeInfo &info) {
-	throw BinderException("Altertable databases do not support creating types - use altertable_execute to create types on the remote server");
+	throw BinderException("Altertable databases do not support creating types - use altertable_execute to create types "
+	                      "on the remote server");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateSequence(CatalogTransaction transaction,
-                                                               CreateSequenceInfo &info) {
+                                                                 CreateSequenceInfo &info) {
 	throw BinderException("Altertable databases do not support creating sequences");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateTableFunction(CatalogTransaction transaction,
-                                                                    CreateTableFunctionInfo &info) {
+                                                                      CreateTableFunctionInfo &info) {
 	throw BinderException("Altertable databases do not support creating table functions");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateCopyFunction(CatalogTransaction transaction,
-                                                                   CreateCopyFunctionInfo &info) {
+                                                                     CreateCopyFunctionInfo &info) {
 	throw BinderException("Altertable databases do not support creating copy functions");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreatePragmaFunction(CatalogTransaction transaction,
-                                                                     CreatePragmaFunctionInfo &info) {
+                                                                       CreatePragmaFunctionInfo &info) {
 	throw BinderException("Altertable databases do not support creating pragma functions");
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateCollation(CatalogTransaction transaction,
-                                                                CreateCollationInfo &info) {
+                                                                  CreateCollationInfo &info) {
 	throw BinderException("Altertable databases do not support creating collations");
 }
 
@@ -157,7 +159,7 @@ bool CatalogTypeIsSupported(CatalogType type) {
 }
 
 void AltertableSchemaEntry::Scan(ClientContext &context, CatalogType type,
-                               const std::function<void(CatalogEntry &)> &callback) {
+                                 const std::function<void(CatalogEntry &)> &callback) {
 	if (!CatalogTypeIsSupported(type)) {
 		return;
 	}
@@ -175,7 +177,7 @@ void AltertableSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::LookupEntry(CatalogTransaction transaction,
-                                                            const EntryLookupInfo &lookup_info) {
+                                                              const EntryLookupInfo &lookup_info) {
 	auto catalog_type = lookup_info.GetCatalogType();
 	if (!CatalogTypeIsSupported(catalog_type)) {
 		return nullptr;

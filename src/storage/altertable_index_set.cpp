@@ -27,8 +27,9 @@ void AltertableIndexSet::LoadEntries(AltertableTransaction &transaction) {
 }
 
 optional_ptr<CatalogEntry> AltertableIndexSet::CreateIndex(AltertableTransaction &transaction, CreateIndexInfo &info,
-                                                         TableCatalogEntry &table) {
-	throw BinderException("Creating indexes via catalog not supported - use altertable_execute to create indexes on the remote server");
+                                                           TableCatalogEntry &table) {
+	throw BinderException(
+	    "Creating indexes via catalog not supported - use altertable_execute to create indexes on the remote server");
 }
 
 } // namespace duckdb

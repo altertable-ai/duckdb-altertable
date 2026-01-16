@@ -19,20 +19,22 @@ class AltertableSchemaEntry;
 
 class AltertableTableSet : public AltertableInSchemaSet {
 public:
+	~AltertableTableSet() override = default;
 	explicit AltertableTableSet(AltertableSchemaEntry &schema, unique_ptr<AltertableResultSlice> tables = nullptr);
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(AltertableTransaction &transaction, BoundCreateTableInfo &info);
 
-	static unique_ptr<AltertableTableInfo> GetTableInfo(AltertableTransaction &transaction, AltertableSchemaEntry &schema,
-	                                                  const string &table_name);
+	static unique_ptr<AltertableTableInfo> GetTableInfo(AltertableTransaction &transaction,
+	                                                    AltertableSchemaEntry &schema, const string &table_name);
 	static unique_ptr<AltertableTableInfo> GetTableInfo(AltertableConnection &connection, const string &schema_name,
-	                                                  const string &table_name);
+	                                                    const string &table_name);
 	optional_ptr<CatalogEntry> ReloadEntry(AltertableTransaction &transaction, const string &table_name) override;
 
 	void AlterTable(AltertableTransaction &transaction, AlterTableInfo &info);
 
-	static string GetInitializeQuery(const string &catalog = string(), const string &schema = string(), const string &table = string());
+	static string GetInitializeQuery(const string &catalog = string(), const string &schema = string(),
+	                                 const string &table = string());
 
 protected:
 	void LoadEntries(AltertableTransaction &transaction) override;

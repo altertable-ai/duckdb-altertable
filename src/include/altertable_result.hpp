@@ -8,8 +8,7 @@
 
 #pragma once
 
-#include "altertable_utils.hpp"
-#include "arrow/record_batch.h"
+#include "duckdb.hpp"
 #include "arrow/table.h"
 #include "arrow/array.h"
 
@@ -21,11 +20,11 @@ class AltertableResult {
 public:
 	AltertableResult() : row_count(0) {
 	}
-	
-	AltertableResult(std::shared_ptr<arrow::Table> table_p) : table(std::move(table_p)) {
+
+	explicit AltertableResult(std::shared_ptr<arrow::Table> table_p) : table(std::move(table_p)) {
 		row_count = table ? table->num_rows() : 0;
 	}
-	
+
 	~AltertableResult() {
 	}
 
@@ -40,7 +39,7 @@ public:
 		}
 		// Handle chunked arrays
 		int64_t chunk_idx = 0;
-		int64_t offset = row;
+		int64_t offset = static_cast<int64_t>(row);
 		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
 			offset -= column->chunk(chunk_idx)->length();
 			chunk_idx++;
@@ -55,7 +54,7 @@ public:
 		auto str_array = std::static_pointer_cast<arrow::StringArray>(chunk);
 		return str_array->GetString(offset);
 	}
-	
+
 	string_t GetStringRef(idx_t row, idx_t col) {
 		// For now, just return a string_t from the string
 		// Note: This is not truly a reference as the string is copied
@@ -71,7 +70,7 @@ public:
 			return 0;
 		}
 		int64_t chunk_idx = 0;
-		int64_t offset = row;
+		int64_t offset = static_cast<int64_t>(row);
 		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
 			offset -= column->chunk(chunk_idx)->length();
 			chunk_idx++;
@@ -86,7 +85,7 @@ public:
 		auto int_array = std::static_pointer_cast<arrow::Int32Array>(chunk);
 		return int_array->Value(offset);
 	}
-	
+
 	int64_t GetInt64(idx_t row, idx_t col) {
 		if (!table || col >= (idx_t)table->num_columns()) {
 			return 0;
@@ -96,7 +95,7 @@ public:
 			return 0;
 		}
 		int64_t chunk_idx = 0;
-		int64_t offset = row;
+		int64_t offset = static_cast<int64_t>(row);
 		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
 			offset -= column->chunk(chunk_idx)->length();
 			chunk_idx++;
@@ -126,7 +125,7 @@ public:
 			return 0;
 		}
 	}
-	
+
 	bool GetBool(idx_t row, idx_t col) {
 		if (!table || col >= (idx_t)table->num_columns()) {
 			return false;
@@ -136,7 +135,7 @@ public:
 			return false;
 		}
 		int64_t chunk_idx = 0;
-		int64_t offset = row;
+		int64_t offset = static_cast<int64_t>(row);
 		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
 			offset -= column->chunk(chunk_idx)->length();
 			chunk_idx++;
@@ -151,7 +150,7 @@ public:
 		auto bool_array = std::static_pointer_cast<arrow::BooleanArray>(chunk);
 		return bool_array->Value(offset);
 	}
-	
+
 	bool IsNull(idx_t row, idx_t col) {
 		if (!table || col >= (idx_t)table->num_columns()) {
 			return true;
@@ -161,7 +160,7 @@ public:
 			return true;
 		}
 		int64_t chunk_idx = 0;
-		int64_t offset = row;
+		int64_t offset = static_cast<int64_t>(row);
 		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
 			offset -= column->chunk(chunk_idx)->length();
 			chunk_idx++;
@@ -171,11 +170,11 @@ public:
 		}
 		return column->chunk(chunk_idx)->IsNull(offset);
 	}
-	
+
 	idx_t Count() {
 		return row_count;
 	}
-	
+
 	idx_t AffectedRows() {
 		return row_count;
 	}

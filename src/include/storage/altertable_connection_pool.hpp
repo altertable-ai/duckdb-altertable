@@ -41,7 +41,8 @@ class AltertableConnectionPool {
 public:
 	static constexpr const idx_t DEFAULT_MAX_CONNECTIONS = 64;
 
-	AltertableConnectionPool(AltertableCatalog &altertable_catalog, idx_t maximum_connections = DEFAULT_MAX_CONNECTIONS);
+	explicit AltertableConnectionPool(AltertableCatalog &altertable_catalog,
+	                                  idx_t maximum_connections = DEFAULT_MAX_CONNECTIONS);
 
 public:
 	bool TryGetConnection(AltertablePoolConnection &connection);

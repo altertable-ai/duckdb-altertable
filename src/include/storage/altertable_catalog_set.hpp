@@ -21,6 +21,7 @@ class AltertableTransaction;
 
 class AltertableCatalogSet {
 public:
+	virtual ~AltertableCatalogSet() = default;
 	AltertableCatalogSet(Catalog &catalog, bool is_loaded);
 
 	optional_ptr<CatalogEntry> GetEntry(AltertableTransaction &transaction, const string &name);
@@ -55,6 +56,7 @@ private:
 
 class AltertableInSchemaSet : public AltertableCatalogSet {
 public:
+	~AltertableInSchemaSet() override = default;
 	AltertableInSchemaSet(AltertableSchemaEntry &schema, bool is_loaded);
 
 	optional_ptr<CatalogEntry> CreateEntry(AltertableTransaction &transaction, shared_ptr<CatalogEntry> entry) override;

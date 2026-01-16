@@ -21,7 +21,7 @@ struct AltertableBindData : public FunctionData {
 	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
 
 public:
-	AltertableBindData(ClientContext &context);
+	explicit AltertableBindData(ClientContext &context);
 
 	AltertableVersion version;
 	string catalog_name;

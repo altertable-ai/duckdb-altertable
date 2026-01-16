@@ -85,8 +85,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
 	config.storage_extensions["altertable"] = make_uniq<AltertableStorageExtension>();
 
-	config.AddExtensionOption("altertable_debug_show_queries", "DEBUG SETTING: print all queries sent to Altertable to stdout",
-	                          LogicalType::BOOLEAN, Value::BOOLEAN(false), SetAltertableDebugQueryPrint);
+	config.AddExtensionOption("altertable_debug_show_queries",
+	                          "DEBUG SETTING: print all queries sent to Altertable to stdout", LogicalType::BOOLEAN,
+	                          Value::BOOLEAN(false), SetAltertableDebugQueryPrint);
 }
 
 void AltertableExtension::Load(ExtensionLoader &loader) {

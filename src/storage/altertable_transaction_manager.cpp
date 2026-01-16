@@ -3,7 +3,8 @@
 
 namespace duckdb {
 
-AltertableTransactionManager::AltertableTransactionManager(AttachedDatabase &db_p, AltertableCatalog &altertable_catalog)
+AltertableTransactionManager::AltertableTransactionManager(AttachedDatabase &db_p,
+                                                           AltertableCatalog &altertable_catalog)
     : TransactionManager(db_p), altertable_catalog(altertable_catalog) {
 }
 

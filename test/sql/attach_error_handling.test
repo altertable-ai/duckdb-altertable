@@ -1,6 +1,6 @@
-# name: test/sql/storage/attach_error_handling.test
+# name: test/sql/attach_error_handling.test
 # description: Test error handling for ATTACH
-# group: [storage]
+# group: [sql]
 
 require altertable
 

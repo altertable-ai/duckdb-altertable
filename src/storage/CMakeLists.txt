@@ -10,12 +10,12 @@ add_library(
   altertable_table_set.cpp
   altertable_transaction.cpp
   altertable_transaction_manager.cpp)
-  
-target_include_directories(altertable_ext_storage PRIVATE 
-    ${Arrow_INCLUDE_DIRS} 
-    ${ArrowFlight_INCLUDE_DIRS} 
-    ${ArrowFlightSql_INCLUDE_DIRS})
-    
+
+target_include_directories(
+  altertable_ext_storage
+  PRIVATE ${Arrow_INCLUDE_DIRS} ${ArrowFlight_INCLUDE_DIRS}
+          ${ArrowFlightSql_INCLUDE_DIRS})
+
 set(ALL_OBJECT_FILES
     ${ALL_OBJECT_FILES} $<TARGET_OBJECTS:altertable_ext_storage>
     PARENT_SCOPE)

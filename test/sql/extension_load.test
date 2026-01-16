@@ -1,6 +1,6 @@
-# name: test/sql/misc/extension_load.test
+# name: test/sql/extension_load.test
 # description: Test that the Altertable extension loads correctly
-# group: [misc]
+# group: [sql]
 
 require altertable
 

@@ -1,6 +1,6 @@
-# name: test/sql/storage/connection_string.test
+# name: test/sql/connection_string.test
 # description: Test connection string variations
-# group: [storage]
+# group: [sql]
 
 require altertable
 

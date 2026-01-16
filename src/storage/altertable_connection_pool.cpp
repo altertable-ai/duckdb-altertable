@@ -2,13 +2,14 @@
 #include "storage/altertable_catalog.hpp"
 
 namespace duckdb {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static bool use_connection_cache = true;
 
 AltertablePoolConnection::AltertablePoolConnection() : pool(nullptr) {
 }
 
 AltertablePoolConnection::AltertablePoolConnection(optional_ptr<AltertableConnectionPool> pool,
-                                               AltertableConnection connection_p)
+                                                   AltertableConnection connection_p)
     : pool(pool), connection(std::move(connection_p)) {
 }
 
@@ -54,8 +55,7 @@ AltertablePoolConnection AltertableConnectionPool::GetConnectionInternal(unique_
 	}
 	// no cached connections left but there is space to open a new one - open it after releasing the cache lock
 	lock.unlock();
-	return AltertablePoolConnection(
-	    this, AltertableConnection::Open(altertable_catalog.connection_string));
+	return AltertablePoolConnection(this, AltertableConnection::Open(altertable_catalog.connection_string));
 }
 
 AltertablePoolConnection AltertableConnectionPool::ForceGetConnection() {
@@ -82,9 +82,9 @@ void AltertableConnectionPool::AltertableSetConnectionCache(ClientContext &conte
 AltertablePoolConnection AltertableConnectionPool::GetConnection() {
 	AltertablePoolConnection result;
 	if (!TryGetConnection(result)) {
-		throw IOException(
-		    "Failed to get connection from AltertableConnectionPool - maximum connection count exceeded (%llu/%llu max)",
-		    active_connections, maximum_connections);
+		throw IOException("Failed to get connection from AltertableConnectionPool - maximum connection count exceeded "
+		                  "(%llu/%llu max)",
+		                  active_connections, maximum_connections);
 	}
 	return result;
 }

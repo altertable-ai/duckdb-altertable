@@ -19,7 +19,7 @@ class AltertableSchemaEntry : public SchemaCatalogEntry {
 public:
 	AltertableSchemaEntry(Catalog &catalog, CreateSchemaInfo &info);
 	AltertableSchemaEntry(Catalog &catalog, CreateSchemaInfo &info, unique_ptr<AltertableResultSlice> tables,
-	                    unique_ptr<AltertableResultSlice> indexes);
+	                      unique_ptr<AltertableResultSlice> indexes);
 
 public:
 	optional_ptr<CatalogEntry> CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) override;

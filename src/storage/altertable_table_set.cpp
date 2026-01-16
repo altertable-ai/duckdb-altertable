@@ -4,7 +4,6 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "duckdb/parser/constraints/unique_constraint.hpp"
-#include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/catalog/dependency_list.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
@@ -12,7 +11,6 @@
 #include "storage/altertable_schema_entry.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
-#include "altertable_conversion.hpp"
 
 namespace duckdb {
 
@@ -57,8 +55,8 @@ ORDER BY t.table_schema, t.table_name, c.ordinal_position;
 }
 
 void AltertableTableSet::AddColumn(optional_ptr<AltertableTransaction> transaction,
-                                 optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result, idx_t row,
-                                 AltertableTableInfo &table_info) {
+                                   optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result, idx_t row,
+                                   AltertableTableInfo &table_info) {
 	AltertableTypeData type_info;
 	idx_t column_index = 3;
 	auto column_name = result.GetString(row, column_index);
@@ -113,8 +111,8 @@ void AltertableTableSet::AddConstraint(AltertableResult &result, idx_t row, Alte
 }
 
 void AltertableTableSet::AddColumnOrConstraint(optional_ptr<AltertableTransaction> transaction,
-                                             optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result,
-                                             idx_t row, AltertableTableInfo &table_info) {
+                                               optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result,
+                                               idx_t row, AltertableTableInfo &table_info) {
 	if (result.IsNull(row, 3)) {
 		// constraint
 		AddConstraint(result, row, table_info);
@@ -123,7 +121,8 @@ void AltertableTableSet::AddColumnOrConstraint(optional_ptr<AltertableTransactio
 	}
 }
 
-void AltertableTableSet::CreateEntries(AltertableTransaction &transaction, AltertableResult &result, idx_t start, idx_t end) {
+void AltertableTableSet::CreateEntries(AltertableTransaction &transaction, AltertableResult &result, idx_t start,
+                                       idx_t end) {
 	vector<unique_ptr<AltertableTableInfo>> tables;
 	unique_ptr<AltertableTableInfo> info;
 
@@ -164,7 +163,8 @@ void AltertableTableSet::LoadEntries(AltertableTransaction &transaction) {
 }
 
 unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableTransaction &transaction,
-                                                             AltertableSchemaEntry &schema, const string &table_name) {
+                                                                 AltertableSchemaEntry &schema,
+                                                                 const string &table_name) {
 	auto &altertable_catalog = schema.ParentCatalog().Cast<AltertableCatalog>();
 	auto query = AltertableTableSet::GetInitializeQuery(altertable_catalog.GetRemoteCatalog(), schema.name, table_name);
 	auto result = transaction.Query(query);
@@ -180,8 +180,8 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableTrans
 	return table_info;
 }
 
-unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableConnection &connection, const string &schema_name,
-                                                             const string &table_name) {
+unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableConnection &connection,
+                                                                 const string &schema_name, const string &table_name) {
 	auto query = AltertableTableSet::GetInitializeQuery(connection.GetCatalog(), schema_name, table_name);
 	auto result = connection.Query(query);
 	auto rows = result->Count();
@@ -196,7 +196,8 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableConne
 	return table_info;
 }
 
-optional_ptr<CatalogEntry> AltertableTableSet::ReloadEntry(AltertableTransaction &transaction, const string &table_name) {
+optional_ptr<CatalogEntry> AltertableTableSet::ReloadEntry(AltertableTransaction &transaction,
+                                                           const string &table_name) {
 	auto table_info = GetTableInfo(transaction, schema, table_name);
 	if (!table_info) {
 		return nullptr;
@@ -320,7 +321,8 @@ string GetAltertableCreateTable(CreateTableInfo &info) {
 	return ss.str();
 }
 
-optional_ptr<CatalogEntry> AltertableTableSet::CreateTable(AltertableTransaction &transaction, BoundCreateTableInfo &info) {
+optional_ptr<CatalogEntry> AltertableTableSet::CreateTable(AltertableTransaction &transaction,
+                                                           BoundCreateTableInfo &info) {
 	auto create_sql = GetAltertableCreateTable(info.Base());
 	transaction.Query(create_sql);
 	auto tbl_entry = make_shared_ptr<AltertableTableEntry>(catalog, schema, info.Base());

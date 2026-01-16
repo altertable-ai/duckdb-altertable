@@ -1,6 +1,6 @@
-# name: test/sql/storage/attach_simple.test
+# name: test/sql/attach_simple.test
 # description: Basic ATTACH test for Altertable
-# group: [storage]
+# group: [sql]
 
 require altertable
 

@@ -1,1 +1,57 @@
-duckdb/.clang-tidy
+Checks: "-*,clang-diagnostic-*"
+WarningsAsErrors: "*"
+HeaderFilterRegex: "src/include/.*"
+FormatStyle: none
+CheckOptions:
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.TypedefCase
+    value: lower_case
+  - key: readability-identifier-naming.TypedefSuffix
+    value: _t
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.MemberCase
+    value: lower_case
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.ConstantCase
+    value: aNy_CasE
+  - key: readability-identifier-naming.ConstantParameterCase
+    value: lower_case
+  - key: readability-identifier-naming.NamespaceCase
+    value: lower_case
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.StaticConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstantMemberCase
+    value: aNy_CasE
+  - key: readability-identifier-naming.StaticVariableCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ClassConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.ConstexprVariableCase
+    value: aNy_CasE
+  - key: readability-identifier-naming.StaticConstantCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.TemplateTemplateParameterCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.TypeTemplateParameterCase
+    value: UPPER_CASE
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+  - key: modernize-use-emplace.SmartPointers
+    value: "::duckdb::shared_ptr;::duckdb::unique_ptr;::std::auto_ptr;::duckdb::weak_ptr"
+  - key: cppcoreguidelines-rvalue-reference-param-not-moved.IgnoreUnnamedParams
+    value: true
+  - key: misc-use-internal-linkage
+    value: true
+  - key: readability-static-definition-in-anonymous-namespace
+    value: true
+  - key: misc-include-cleaner.UnusedIncludes
+    value: false

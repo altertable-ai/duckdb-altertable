@@ -1,0 +1,13 @@
+{
+  "cmake.generator": "Ninja",
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "editor.formatOnSave": true,
+  "[c]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+  "clang-format.executable": "clang-format",
+  "clang-format.style": "file"
+}
