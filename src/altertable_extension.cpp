@@ -3,6 +3,7 @@
 #include "altertable_scanner.hpp"
 #include "altertable_storage.hpp"
 #include "altertable_extension.hpp"
+#include "altertable_optimizer.hpp"
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
@@ -84,6 +85,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	// Register storage extension for ATTACH support
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
 	config.storage_extensions["altertable"] = make_uniq<AltertableStorageExtension>();
+
+	// Register optimizer extension for LIMIT pushdown
+	config.optimizer_extensions.push_back(CreateAltertableLimitPushdownOptimizer());
 
 	config.AddExtensionOption("altertable_debug_show_queries",
 	                          "DEBUG SETTING: print all queries sent to Altertable to stdout", LogicalType::BOOLEAN,
