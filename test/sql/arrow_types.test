@@ -1,0 +1,56 @@
+# name: test/sql/arrow_types.test
+# description: Test various Arrow type conversions (STRING, LARGE_STRING, BINARY, DECIMAL)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create a table with various types (drop first to ensure clean state)
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_arrow_types')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_arrow_types (id INTEGER, name VARCHAR, description TEXT, price DOUBLE, created_at TIMESTAMP)')
+
+# Insert data
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_arrow_types VALUES (1, ''Product A'', ''This is a long description for product A'', 10.50, ''2024-01-15 10:30:00'')')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_arrow_types VALUES (2, ''Product B'', ''Another long description for product B'', 99.99, ''2024-01-16 14:45:30'')')
+
+# Query the table to verify all types are read correctly
+query ITTRT
+SELECT * FROM test_db.main.test_arrow_types ORDER BY id
+----
+1	Product A	This is a long description for product A	10.5	2024-01-15 10:30:00
+2	Product B	Another long description for product B	99.99	2024-01-16 14:45:30
+
+# Test filtering on VARCHAR column
+query IT
+SELECT id, name FROM test_db.main.test_arrow_types WHERE id = 1
+----
+1	Product A
+
+# Test projection with mixed types
+query TR
+SELECT description, price FROM test_db.main.test_arrow_types WHERE id = 1
+----
+This is a long description for product A	10.5
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_arrow_types')

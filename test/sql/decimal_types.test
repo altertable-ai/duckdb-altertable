@@ -1,0 +1,67 @@
+# name: test/sql/decimal_types.test
+# description: Test DECIMAL/NUMERIC type handling in Altertable scanner
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create a table with numeric columns (drop first to ensure clean state)
+# Note: Some Flight SQL servers return DECIMAL as VARCHAR in Arrow
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_numeric_types')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_numeric_types (id INTEGER, price DOUBLE, quantity DOUBLE, name VARCHAR)')
+
+# Insert data
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_numeric_types VALUES (1, 10.50, 100.250, ''Product A'')')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_numeric_types VALUES (2, 99.99, 200.500, ''Product B'')')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_numeric_types VALUES (3, 0.01, 1.001, ''Product C'')')
+
+# Query the table to verify values are read correctly
+query IRRT
+SELECT * FROM test_db.main.test_numeric_types ORDER BY id
+----
+1	10.5	100.25	Product A
+2	99.99	200.5	Product B
+3	0.01	1.001	Product C
+
+# Test filtering by id
+query IRRT
+SELECT * FROM test_db.main.test_numeric_types WHERE id = 2
+----
+2	99.99	200.5	Product B
+
+# Test projection pushdown
+query RT
+SELECT price, name FROM test_db.main.test_numeric_types WHERE id = 2
+----
+99.99	Product B
+
+# Test aggregations
+query II
+SELECT COUNT(*), MIN(id) FROM test_db.main.test_numeric_types
+----
+3	1
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_numeric_types')

@@ -11,6 +11,7 @@
 
 #include "arrow/type.h"
 #include "arrow/ipc/dictionary.h"
+#include "arrow/util/decimal.h"
 
 namespace duckdb {
 
@@ -112,6 +113,8 @@ static LogicalType GetArrowLogicalType(const arrow::DataType &arrow_type) {
 	case arrow::Type::BINARY:
 	case arrow::Type::LARGE_BINARY:
 		return LogicalType::BLOB;
+	case arrow::Type::FIXED_SIZE_BINARY:
+		return LogicalType::BLOB;
 	case arrow::Type::DATE32:
 	case arrow::Type::DATE64:
 		return LogicalType::DATE;
@@ -120,9 +123,13 @@ static LogicalType GetArrowLogicalType(const arrow::DataType &arrow_type) {
 		return LogicalType::TIME;
 	case arrow::Type::TIMESTAMP:
 		return LogicalType::TIMESTAMP;
-	case arrow::Type::DECIMAL:
+	case arrow::Type::DECIMAL128: {
+		auto &dec_type = static_cast<const arrow::Decimal128Type &>(arrow_type);
+		return LogicalType::DECIMAL(dec_type.precision(), dec_type.scale());
+	}
 	case arrow::Type::DECIMAL256:
-		return LogicalType::DECIMAL(18, 3); // Approximate
+		// DuckDB doesn't support 256-bit decimals, convert to VARCHAR
+		return LogicalType::VARCHAR;
 	default:
 		return LogicalType::VARCHAR; // Fallback
 	}
@@ -573,9 +580,58 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			}
 			break;
 		}
-		case arrow::Type::STRING:
-		case arrow::Type::LARGE_STRING: {
+		case arrow::Type::STRING: {
 			auto str_array = std::static_pointer_cast<arrow::StringArray>(arrow_col);
+			// Check if we're supposed to write to a UUID column
+			// This can happen when information_schema says UUID but Arrow returns STRING
+			if (vector.GetType() == LogicalType::UUID) {
+				// Parse UUID string and write as INT128
+				auto data = FlatVector::GetData<hugeint_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (str_array->IsValid(i)) {
+						string uuid_str = str_array->GetString(i);
+						// Parse UUID string: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+						// Remove hyphens and parse as hex
+						string hex_str;
+						for (char c : uuid_str) {
+							if (c != '-') {
+								hex_str += c;
+							}
+						}
+						// Convert hex string to INT128
+						uint64_t upper = 0;
+						uint64_t lower = 0;
+						for (size_t j = 0; j < 16 && j < hex_str.size(); j++) {
+							int nibble = (hex_str[j] >= '0' && hex_str[j] <= '9') ? (hex_str[j] - '0')
+							                                                      : (tolower(hex_str[j]) - 'a' + 10);
+							upper = (upper << 4) | nibble;
+						}
+						for (size_t j = 16; j < 32 && j < hex_str.size(); j++) {
+							int nibble = (hex_str[j] >= '0' && hex_str[j] <= '9') ? (hex_str[j] - '0')
+							                                                      : (tolower(hex_str[j]) - 'a' + 10);
+							lower = (lower << 4) | nibble;
+						}
+						data[i] = hugeint_t(upper, lower);
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
+				}
+			} else {
+				// Normal VARCHAR handling
+				auto data = FlatVector::GetData<string_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (str_array->IsValid(i)) {
+						string val = str_array->GetString(i);
+						data[i] = StringVector::AddString(vector, val);
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
+				}
+			}
+			break;
+		}
+		case arrow::Type::LARGE_STRING: {
+			auto str_array = std::static_pointer_cast<arrow::LargeStringArray>(arrow_col);
 			auto data = FlatVector::GetData<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (str_array->IsValid(i)) {
@@ -587,9 +643,21 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			}
 			break;
 		}
-		case arrow::Type::BINARY:
-		case arrow::Type::LARGE_BINARY: {
+		case arrow::Type::BINARY: {
 			auto bin_array = std::static_pointer_cast<arrow::BinaryArray>(arrow_col);
+			auto data = FlatVector::GetData<string_t>(vector);
+			for (idx_t i = 0; i < row_count; i++) {
+				if (bin_array->IsValid(i)) {
+					auto view = bin_array->GetView(i);
+					data[i] = StringVector::AddStringOrBlob(vector, view.data(), view.size());
+				} else {
+					FlatVector::SetNull(vector, i, true);
+				}
+			}
+			break;
+		}
+		case arrow::Type::LARGE_BINARY: {
+			auto bin_array = std::static_pointer_cast<arrow::LargeBinaryArray>(arrow_col);
 			auto data = FlatVector::GetData<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (bin_array->IsValid(i)) {
@@ -713,8 +781,62 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			}
 			break;
 		}
+		case arrow::Type::FIXED_SIZE_BINARY: {
+			// Handle as BLOB
+			auto fixed_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(arrow_col);
+			auto data = FlatVector::GetData<string_t>(vector);
+			for (idx_t i = 0; i < row_count; i++) {
+				if (fixed_array->IsValid(i)) {
+					auto view = fixed_array->GetView(i);
+					data[i] = StringVector::AddStringOrBlob(vector, view.data(), view.size());
+				} else {
+					FlatVector::SetNull(vector, i, true);
+				}
+			}
+			break;
+		}
+		case arrow::Type::DECIMAL128: {
+			auto dec_array = std::static_pointer_cast<arrow::Decimal128Array>(arrow_col);
+			auto dec_type = std::static_pointer_cast<arrow::Decimal128Type>(arrow_col->type());
+			auto data = FlatVector::GetData<hugeint_t>(vector);
+
+			for (idx_t i = 0; i < row_count; i++) {
+				if (dec_array->IsValid(i)) {
+					// GetView returns raw bytes, construct Decimal128 from the pointer
+					auto view = dec_array->GetView(i);
+					arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+					// Convert to hugeint_t - Arrow Decimal128 is stored as two 64-bit integers
+					auto low = static_cast<uint64_t>(decimal_value.low_bits());
+					auto high = static_cast<int64_t>(decimal_value.high_bits());
+					data[i] = hugeint_t(high, low);
+				} else {
+					FlatVector::SetNull(vector, i, true);
+				}
+			}
+			break;
+		}
+		case arrow::Type::DECIMAL256: {
+			// For DECIMAL256, convert to string representation as DuckDB doesn't natively support 256-bit decimals
+			auto dec_array = std::static_pointer_cast<arrow::Decimal256Array>(arrow_col);
+			auto dec_type = std::static_pointer_cast<arrow::Decimal256Type>(arrow_col->type());
+			auto data = FlatVector::GetData<string_t>(vector);
+
+			for (idx_t i = 0; i < row_count; i++) {
+				if (dec_array->IsValid(i)) {
+					auto view = dec_array->GetView(i);
+					arrow::Decimal256 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+					string str_val = decimal_value.ToString(dec_type->scale());
+					data[i] = StringVector::AddString(vector, str_val);
+				} else {
+					FlatVector::SetNull(vector, i, true);
+				}
+			}
+			break;
+		}
 		default:
-			throw NotImplementedException("Arrow type %s not yet supported", arrow_col->type()->ToString());
+			// Log the unknown type for debugging
+			throw NotImplementedException("Arrow type %s (ID: %d) not yet supported for column index %llu",
+			                              arrow_col->type()->ToString(), (int)arrow_col->type()->id(), col_idx);
 		}
 	}
 }
