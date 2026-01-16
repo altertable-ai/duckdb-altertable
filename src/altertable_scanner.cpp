@@ -347,17 +347,37 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		if (input.filters) {
 			string filter_string;
 			for (auto &entry : input.filters->filters) {
-				idx_t col_idx = entry.first;
+				idx_t projected_col_idx = entry.first;
 				auto &filter = *entry.second;
-				if (col_idx < bind_data.names.size()) {
-					string col_name = bind_data.names[col_idx];
-					string predicate = GetPredicateFromFilter(filter, col_name);
-					if (!predicate.empty()) {
-						if (!filter_string.empty()) {
-							filter_string += " AND ";
-						}
-						filter_string += predicate;
+
+				// Map from projected column index to original table column index
+				// When filters are pushed down with projection, the filter column indices
+				// refer to the projected columns (column_ids), not the original table
+				idx_t table_col_idx;
+				if (!input.column_ids.empty()) {
+					// Projection pushdown is active - map through column_ids
+					if (projected_col_idx >= input.column_ids.size()) {
+						throw InternalException("Filter column index %llu is out of range for column_ids (size: %llu)",
+						                        projected_col_idx, input.column_ids.size());
 					}
+					table_col_idx = input.column_ids[projected_col_idx];
+				} else {
+					// No projection pushdown - filter indices refer directly to table columns
+					table_col_idx = projected_col_idx;
+				}
+
+				if (table_col_idx >= bind_data.names.size()) {
+					throw InternalException("Table column index %llu is out of range for table columns (size: %llu)",
+					                        table_col_idx, bind_data.names.size());
+				}
+
+				string col_name = bind_data.names[table_col_idx];
+				string predicate = GetPredicateFromFilter(filter, col_name);
+				if (!predicate.empty()) {
+					if (!filter_string.empty()) {
+						filter_string += " AND ";
+					}
+					filter_string += predicate;
 				}
 			}
 			if (!filter_string.empty()) {

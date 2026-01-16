@@ -1,0 +1,59 @@
+# name: test/sql/filter_pushdown_projection.test
+# description: Test filter pushdown with projection (column reordering)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create a table with multiple columns (drop first to ensure clean state)
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_filter_proj')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_filter_proj (col_a VARCHAR, col_b INTEGER, col_c VARCHAR)')
+
+# Insert test data
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_filter_proj VALUES (''first'', 1, ''alpha''), (''second'', 2, ''beta''), (''third'', 3, ''gamma'')')
+
+# Test 1: Filter on middle column with projection
+# This tests the fix where filter column indices need to be mapped through column_ids
+query IT
+SELECT col_c, col_b FROM test_db.main.test_filter_proj WHERE col_b = 2
+----
+beta	2
+
+# Test 2: Filter on first column with reordered projection
+query TI
+SELECT col_c, col_b FROM test_db.main.test_filter_proj WHERE col_a = 'third'
+----
+gamma	3
+
+# Test 3: Filter on last column
+query TI
+SELECT col_a, col_b FROM test_db.main.test_filter_proj WHERE col_c = 'alpha'
+----
+first	1
+
+# Test 4: Multiple filters with projection
+query T
+SELECT col_c FROM test_db.main.test_filter_proj WHERE col_b > 1 AND col_a = 'second'
+----
+beta
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_filter_proj')
