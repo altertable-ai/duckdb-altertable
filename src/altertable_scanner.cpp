@@ -4,6 +4,10 @@
 #include "storage/altertable_catalog.hpp"
 #include "storage/altertable_transaction.hpp"
 #include "storage/altertable_table_set.hpp"
+#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
+#include "duckdb/planner/filter/null_filter.hpp"
+#include "duckdb/planner/table_filter.hpp"
 
 #include "arrow/type.h"
 #include "arrow/ipc/dictionary.h"
@@ -217,6 +221,74 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 	return true;
 }
 
+string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
+	switch (filter.filter_type) {
+	case TableFilterType::CONSTANT_COMPARISON: {
+		auto &constant_filter = filter.Cast<ConstantFilter>();
+		string op;
+		switch (constant_filter.comparison_type) {
+		case ExpressionType::COMPARE_EQUAL:
+			op = "=";
+			break;
+		case ExpressionType::COMPARE_GREATERTHAN:
+			op = ">";
+			break;
+		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+			op = ">=";
+			break;
+		case ExpressionType::COMPARE_LESSTHAN:
+			op = "<";
+			break;
+		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+			op = "<=";
+			break;
+		case ExpressionType::COMPARE_NOTEQUAL:
+			op = "<>";
+			break;
+		default:
+			return "";
+		}
+		return "\"" + col_name + "\" " + op + " " + constant_filter.constant.ToSQLString();
+	}
+	case TableFilterType::CONJUNCTION_AND: {
+		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
+		string result;
+		for (auto &child_filter : and_filter.child_filters) {
+			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
+			if (child_predicate.empty()) {
+				continue;
+			}
+			if (!result.empty()) {
+				result += " AND ";
+			}
+			result += "(" + child_predicate + ")";
+		}
+		return result;
+	}
+	case TableFilterType::CONJUNCTION_OR: {
+		auto &or_filter = filter.Cast<ConjunctionOrFilter>();
+		string result;
+		for (auto &child_filter : or_filter.child_filters) {
+			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
+			if (child_predicate.empty()) {
+				return "";
+			}
+			if (!result.empty()) {
+				result += " OR ";
+			}
+			result += "(" + child_predicate + ")";
+		}
+		return result;
+	}
+	case TableFilterType::IS_NULL:
+		return "\"" + col_name + "\" IS NULL";
+	case TableFilterType::IS_NOT_NULL:
+		return "\"" + col_name + "\" IS NOT NULL";
+	default:
+		return "";
+	}
+}
+
 static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context, TableFunctionInitInput &input,
                                                          AltertableGlobalState &gstate) {
 	auto &bind_data = (AltertableBindData &)*input.bind_data;
@@ -263,6 +335,27 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 			         bind_data.table_name + "\"";
 		} else {
 			query += " FROM \"" + bind_data.schema_name + "\".\"" + bind_data.table_name + "\"";
+		}
+
+		if (input.filters) {
+			string filter_string;
+			for (auto &entry : input.filters->filters) {
+				idx_t col_idx = entry.first;
+				auto &filter = *entry.second;
+				if (col_idx < bind_data.names.size()) {
+					string col_name = bind_data.names[col_idx];
+					string predicate = GetPredicateFromFilter(filter, col_name);
+					if (!predicate.empty()) {
+						if (!filter_string.empty()) {
+							filter_string += " AND ";
+						}
+						filter_string += predicate;
+					}
+				}
+			}
+			if (!filter_string.empty()) {
+				query += " WHERE " + filter_string;
+			}
 		}
 
 		if (!bind_data.limit.empty()) {
@@ -644,6 +737,7 @@ AltertableScanFunction::AltertableScanFunction()
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
 	projection_pushdown = true;
+	filter_pushdown = true;
 }
 
 AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
