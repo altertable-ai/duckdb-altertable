@@ -20,11 +20,38 @@ jobs:
       ci_tools_version: v1.5.0
       extension_name: altertable
 
-  code-quality-check:
-    name: Code Quality Check
+  format-check:
+    name: Format Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5.0
     with:
       duckdb_version: v1.5.0
       ci_tools_version: v1.5.0
       extension_name: altertable
-      format_checks: "format;tidy"
+      format_checks: "format"
+
+  tidy-check:
+    name: Tidy Check
+    runs-on: ubuntu-latest
+    env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: "x64-linux"
+      GEN: ninja
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install Ninja
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build clang-tidy
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: "true"
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: ce613c41372b23b1f51333815feb3edd87ef8a8b
+
+      - name: Run tidy-check
+        run: make tidy-check
