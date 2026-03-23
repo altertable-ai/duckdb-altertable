@@ -105,8 +105,7 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 		call_options.headers.push_back(bearer_token);
 	}
 
-	auto sql_client =
-	    std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
+	auto sql_client = std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));
 	connection->call_options = call_options;

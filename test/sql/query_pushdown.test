@@ -1,4 +1,4 @@
-# name: test/sql/query_function.test
+# name: test/sql/query_pushdown.test
 # description: Test altertable_query function
 # group: [sql]
 
