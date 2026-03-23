@@ -33,9 +33,8 @@ void AltertableTransactionManager::RollbackTransaction(Transaction &transaction)
 }
 
 void AltertableTransactionManager::Checkpoint(ClientContext &context, bool force) {
-	auto &transaction = AltertableTransaction::Get(context, db.GetCatalog());
-	auto &db = transaction.GetConnection();
-	db.Execute("CHECKPOINT");
+	// DuckDB CHECKPOINT is for local storage; remote Arrow Flight SQL has no equivalent.
+	// Do not send SQL "CHECKPOINT" to the remote engine (PostgreSQL treats it as a privileged WAL flush).
 }
 
 } // namespace duckdb

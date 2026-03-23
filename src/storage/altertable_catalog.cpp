@@ -24,7 +24,7 @@ static string ExtractCatalogFromConnectionString(const string &connection_string
 		if (param.empty())
 			continue;
 		auto kv = StringUtil::Split(param, "=");
-		if (kv.size() == 2 && kv[0] == "dbname") {
+		if (kv.size() == 2 && StringUtil::Lower(kv[0]) == "dbname") {
 			return kv[1];
 		}
 	}
@@ -94,6 +94,7 @@ string AltertableCatalog::GetConnectionString(ClientContext &context, const stri
 		new_connection_info += AddConnectionOption(*kv_secret, "host");
 		new_connection_info += AddConnectionOption(*kv_secret, "port");
 		new_connection_info += AddConnectionOption(*kv_secret, "ssl");
+		new_connection_info += AddConnectionOption(*kv_secret, "dbname");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {

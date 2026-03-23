@@ -3,51 +3,9 @@
 #include "duckdb/main/attached_database.hpp"
 #include "storage/altertable_catalog.hpp"
 #include "storage/altertable_transaction.hpp"
-#include "arrow/type.h"
 #include "arrow/api.h"
 
 namespace duckdb {
-
-static LogicalType GetArrowLogicalType(const arrow::DataType &arrow_type) {
-	switch (arrow_type.id()) {
-	case arrow::Type::BOOL:
-		return LogicalType::BOOLEAN;
-	case arrow::Type::INT8:
-		return LogicalType::TINYINT;
-	case arrow::Type::INT16:
-		return LogicalType::SMALLINT;
-	case arrow::Type::INT32:
-		return LogicalType::INTEGER;
-	case arrow::Type::INT64:
-		return LogicalType::BIGINT;
-	case arrow::Type::UINT8:
-		return LogicalType::UTINYINT;
-	case arrow::Type::UINT16:
-		return LogicalType::USMALLINT;
-	case arrow::Type::UINT32:
-		return LogicalType::UINTEGER;
-	case arrow::Type::UINT64:
-		return LogicalType::UBIGINT;
-	case arrow::Type::FLOAT:
-		return LogicalType::FLOAT;
-	case arrow::Type::DOUBLE:
-		return LogicalType::DOUBLE;
-	case arrow::Type::STRING:
-	case arrow::Type::LARGE_STRING:
-		return LogicalType::VARCHAR;
-	case arrow::Type::BINARY:
-	case arrow::Type::LARGE_BINARY:
-		return LogicalType::BLOB;
-	case arrow::Type::DATE32:
-		return LogicalType::DATE;
-	case arrow::Type::TIMESTAMP:
-		return LogicalType::TIMESTAMP;
-	case arrow::Type::DECIMAL:
-		return LogicalType::DECIMAL(18, 3); // Approximate
-	default:
-		return LogicalType::VARCHAR; // Fallback
-	}
-}
 
 static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
                                             vector<LogicalType> &return_types, vector<string> &names) {
@@ -88,7 +46,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	for (int i = 0; i < schema->num_fields(); i++) {
 		auto field = schema->field(i);
 		names.push_back(field->name());
-		return_types.push_back(GetArrowLogicalType(*field->type()));
+		return_types.push_back(AltertableArrowTypeToLogicalType(*field->type()));
 	}
 
 	bind_data->names = names;
@@ -99,7 +57,6 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 
 AltertableQueryFunction::AltertableQueryFunction()
     : TableFunction("altertable_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
-	named_parameters["use_transaction"] = LogicalType::BOOLEAN;
 	AltertableScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;

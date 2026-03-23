@@ -1,0 +1,24 @@
+# name: test/sql/checkpoint_remote.test
+# description: DuckDB CHECKPOINT on an Altertable attached DB is a no-op (does not send CHECKPOINT to the remote engine)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS cp_db (TYPE ALTERTABLE)
+
+statement ok
+CALL checkpoint('cp_db')
+
+statement ok
+DETACH cp_db

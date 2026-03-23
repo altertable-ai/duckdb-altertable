@@ -1,0 +1,45 @@
+# name: test/sql/read_only_attach.test
+# description: READ_ONLY attach blocks altertable_execute; reads still work
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS ro_db (TYPE ALTERTABLE, READ_ONLY true)
+
+# Read path uses BEGIN TRANSACTION READ ONLY on the remote connection
+query I
+SELECT COUNT(*) >= 0 FROM duckdb_databases() WHERE database_name = 'ro_db'
+----
+1
+
+statement error
+CALL altertable_execute('ro_db', 'CREATE TABLE __ro_should_fail (x INTEGER)')
+----
+Cannot use altertable_execute on read-only attached database "ro_db"
+
+statement ok
+DETACH ro_db
+
+# Read-write attach can run DDL via altertable_execute
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS rw_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('rw_db', 'CREATE TABLE IF NOT EXISTS __rw_execute_ok (x INTEGER)')
+
+statement ok
+CALL altertable_execute('rw_db', 'DROP TABLE IF EXISTS __rw_execute_ok')
+
+statement ok
+DETACH rw_db

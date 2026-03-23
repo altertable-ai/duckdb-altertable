@@ -83,58 +83,6 @@ void AltertableBindData::SetTable(AltertableTableEntry &table) {
 	this->attached_table = &table;
 }
 
-static LogicalType GetArrowLogicalType(const arrow::DataType &arrow_type) {
-	switch (arrow_type.id()) {
-	case arrow::Type::BOOL:
-		return LogicalType::BOOLEAN;
-	case arrow::Type::INT8:
-		return LogicalType::TINYINT;
-	case arrow::Type::INT16:
-		return LogicalType::SMALLINT;
-	case arrow::Type::INT32:
-		return LogicalType::INTEGER;
-	case arrow::Type::INT64:
-		return LogicalType::BIGINT;
-	case arrow::Type::UINT8:
-		return LogicalType::UTINYINT;
-	case arrow::Type::UINT16:
-		return LogicalType::USMALLINT;
-	case arrow::Type::UINT32:
-		return LogicalType::UINTEGER;
-	case arrow::Type::UINT64:
-		return LogicalType::UBIGINT;
-	case arrow::Type::FLOAT:
-		return LogicalType::FLOAT;
-	case arrow::Type::DOUBLE:
-		return LogicalType::DOUBLE;
-	case arrow::Type::STRING:
-	case arrow::Type::LARGE_STRING:
-		return LogicalType::VARCHAR;
-	case arrow::Type::BINARY:
-	case arrow::Type::LARGE_BINARY:
-		return LogicalType::BLOB;
-	case arrow::Type::FIXED_SIZE_BINARY:
-		return LogicalType::BLOB;
-	case arrow::Type::DATE32:
-	case arrow::Type::DATE64:
-		return LogicalType::DATE;
-	case arrow::Type::TIME32:
-	case arrow::Type::TIME64:
-		return LogicalType::TIME;
-	case arrow::Type::TIMESTAMP:
-		return LogicalType::TIMESTAMP;
-	case arrow::Type::DECIMAL128: {
-		auto &dec_type = static_cast<const arrow::Decimal128Type &>(arrow_type);
-		return LogicalType::DECIMAL(dec_type.precision(), dec_type.scale());
-	}
-	case arrow::Type::DECIMAL256:
-		// DuckDB doesn't support 256-bit decimals, convert to VARCHAR
-		return LogicalType::VARCHAR;
-	default:
-		return LogicalType::VARCHAR; // Fallback
-	}
-}
-
 static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunctionBindInput &input,
                                                vector<LogicalType> &return_types, vector<string> &names) {
 	auto bind_data = make_uniq<AltertableBindData>(context);
@@ -171,7 +119,7 @@ static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunc
 	for (int i = 0; i < schema->num_fields(); i++) {
 		auto field = schema->field(i);
 		names.push_back(field->name());
-		return_types.push_back(GetArrowLogicalType(*field->type()));
+		return_types.push_back(AltertableArrowTypeToLogicalType(*field->type()));
 	}
 
 	bind_data->names = names;

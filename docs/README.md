@@ -42,6 +42,7 @@ DETACH db;
 | `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
 
 Default connection behavior:
+
 - `host=flight.altertable.ai`
 - `port=443`
 - `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
@@ -103,7 +104,7 @@ SELECT * FROM altertable_scan(
 
 ### `altertable_scan_pushdown(connection_string, schema, table)`
 
-Scan a remote table with predicate pushdown support for improved performance.
+Same implementation as `altertable_scan` (predicate and projection pushdown are enabled for both). Use whichever name you prefer; there is no behavioral difference today.
 
 ```sql
 SELECT * FROM altertable_scan_pushdown(
@@ -150,7 +151,7 @@ JOIN analytics.sales.customer_summary r ON l.id = r.customer_id;
 
 - DuckDB source (as git submodule)
 - VCPKG for dependency management
-- CMake 3.12+
+- CMake 3.20+ (matches the extension `CMakeLists.txt`)
 - Arrow Flight SQL libraries (arrow, arrow-flight, arrow-flight-sql)
 
 ### Setup VCPKG
@@ -177,17 +178,18 @@ Build outputs:
 ### Run Tests
 
 ```bash
-# Set test environment variables
-export ALTERTABLE_TEST_HOST=mock-server
-export ALTERTABLE_TEST_PORT=8080
-export ALTERTABLE_TEST_USER=admin
-export ALTERTABLE_TEST_PASSWORD=password
-export ALTERTABLE_TEST_SSL=false
-
-# Run full tests against the mock server (recommended)
+# Recommended: starts the official mock container, sets ALTERTABLE_TEST_* for you, then runs the suite
 make test-mock
+```
 
-# Or run sqllogictest directly
+For a manual server (no Docker), set the variables yourself, for example:
+
+```bash
+export ALTERTABLE_TEST_HOST=127.0.0.1
+export ALTERTABLE_TEST_PORT=15002
+export ALTERTABLE_TEST_USER=testuser
+export ALTERTABLE_TEST_PASSWORD=testpass
+export ALTERTABLE_TEST_SSL=false
 make test
 ```
 

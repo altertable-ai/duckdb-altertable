@@ -1,0 +1,20 @@
+# name: test/sql/dsn_case_insensitive.test
+# description: DSN keys are matched case-insensitively (Host= vs host=)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+query I
+SELECT * FROM altertable_query('Host=${ALTERTABLE_TEST_HOST} Port=${ALTERTABLE_TEST_PORT} User=${ALTERTABLE_TEST_USER} Password=${ALTERTABLE_TEST_PASSWORD} Ssl=${ALTERTABLE_TEST_SSL}', 'SELECT 7 AS n')
+----
+7

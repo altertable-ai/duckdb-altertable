@@ -1,0 +1,11 @@
+# name: test/sql/connection_cache_option.test
+# description: altertable_connection_cache extension option
+# group: [sql]
+
+require altertable
+
+statement ok
+SET altertable_connection_cache = false
+
+statement ok
+SET altertable_connection_cache = true

@@ -10,6 +10,7 @@
 
 #include "duckdb.hpp"
 #include "arrow/flight/sql/client.h"
+#include "arrow/type.h"
 #include "altertable_version.hpp"
 
 namespace duckdb {
@@ -68,5 +69,8 @@ public:
 
 	static AltertableVersion ExtractAltertableVersion(const string &version);
 };
+
+//! Map Arrow column types to DuckDB logical types (shared by scans and altertable_query).
+LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type);
 
 } // namespace duckdb

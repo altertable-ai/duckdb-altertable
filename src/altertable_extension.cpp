@@ -4,6 +4,7 @@
 #include "altertable_storage.hpp"
 #include "altertable_extension.hpp"
 #include "altertable_optimizer.hpp"
+#include "storage/altertable_connection_pool.hpp"
 
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/common/exception.hpp"
@@ -96,6 +97,11 @@ static void LoadInternal(ExtensionLoader &loader) {
 	config.AddExtensionOption("altertable_debug_show_queries",
 	                          "DEBUG SETTING: print all queries sent to Altertable to stdout", LogicalType::BOOLEAN,
 	                          Value::BOOLEAN(false), SetAltertableDebugQueryPrint);
+
+	config.AddExtensionOption("altertable_connection_cache",
+	                          "Whether to reuse pooled Arrow Flight SQL connections between DuckDB transactions",
+	                          LogicalType::BOOLEAN, Value::BOOLEAN(true),
+	                          AltertableConnectionPool::AltertableSetConnectionCache);
 }
 
 void AltertableExtension::Load(ExtensionLoader &loader) {

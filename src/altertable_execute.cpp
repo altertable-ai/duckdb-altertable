@@ -11,6 +11,7 @@
 #include "duckdb/main/attached_database.hpp"
 #include "storage/altertable_catalog.hpp"
 #include "storage/altertable_transaction.hpp"
+#include "duckdb/common/enums/access_mode.hpp"
 
 namespace duckdb {
 
@@ -52,6 +53,11 @@ static unique_ptr<FunctionData> AltertableExecuteBind(ClientContext &context, Ta
 		throw BinderException("Database \"%s\" is not an Altertable database", db_name);
 	}
 	auto &altertable_catalog = db->GetCatalog().Cast<AltertableCatalog>();
+	if (altertable_catalog.access_mode == AccessMode::READ_ONLY) {
+		throw BinderException(
+		    "Cannot use altertable_execute on read-only attached database \"%s\" (omit READ_ONLY or use read-write ATTACH)",
+		    db_name);
+	}
 	result->dsn = altertable_catalog.connection_string;
 
 	// Return a single row with success status

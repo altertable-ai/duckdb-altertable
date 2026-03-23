@@ -13,7 +13,17 @@ AltertableTransaction::AltertableTransaction(AltertableCatalog &altertable_catal
 	connection = altertable_catalog.GetConnectionPool().GetConnection();
 }
 
-AltertableTransaction::~AltertableTransaction() = default;
+AltertableTransaction::~AltertableTransaction() {
+	// If DuckDB destroyed the transaction without Commit/Rollback, close the remote transaction so the
+	// connection can be returned to the pool without leaving an idle open transaction on the server.
+	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
+		try {
+			GetConnectionRaw().Execute("ROLLBACK");
+		} catch (...) {
+		}
+		transaction_state = AltertableTransactionState::TRANSACTION_FINISHED;
+	}
+}
 
 ClientContext &AltertableTransaction::GetContext() {
 	return *context.lock();
@@ -36,7 +46,7 @@ void AltertableTransaction::Rollback() {
 }
 
 string AltertableTransaction::GetBeginTransactionQuery() {
-	// DuckDB transaction syntax
+	// PostgreSQL-compatible session transaction (Flight SQL / Altertable backend)
 	string result = "BEGIN TRANSACTION";
 	if (access_mode == AccessMode::READ_ONLY) {
 		result += " READ ONLY";

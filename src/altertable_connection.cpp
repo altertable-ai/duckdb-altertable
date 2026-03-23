@@ -37,7 +37,7 @@ static std::unordered_map<string, string> ParseDSN(const string &dsn) {
 			continue;
 		auto kv = StringUtil::Split(param, "=");
 		if (kv.size() == 2) {
-			config[kv[0]] = kv[1];
+			config[StringUtil::Lower(kv[0])] = kv[1];
 		}
 	}
 	return config;
