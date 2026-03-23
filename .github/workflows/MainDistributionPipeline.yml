@@ -18,7 +18,7 @@ jobs:
     with:
       duckdb_version: v1.5.0
       ci_tools_version: v1.5.0
-      extension_name: quack
+      extension_name: altertable
 
   code-quality-check:
     name: Code Quality Check
@@ -26,5 +26,5 @@ jobs:
     with:
       duckdb_version: v1.5.0
       ci_tools_version: v1.5.0
-      extension_name: quack
-      format_checks: 'format;tidy'
+      extension_name: altertable
+      format_checks: "format;tidy"
