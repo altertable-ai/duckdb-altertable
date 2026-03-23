@@ -7,6 +7,10 @@ EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 # Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
+# Run tests with the altertable-mock Docker container
+test-mock:
+	./scripts/test_with_mock.sh
+
 # Generate compile_commands.json for clangd
 clangd:
 	mkdir -p build/clangd

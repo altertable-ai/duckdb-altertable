@@ -39,6 +39,9 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 	if (!info_result.ok()) {
 		throw IOException("Failed to GetDbSchemas: " + info_result.status().ToString());
 	}
+	if (info_result.ValueOrDie()->endpoints().empty()) {
+		throw IOException("Failed to stream schemas: GetDbSchemas returned no endpoints");
+	}
 
 	auto stream_result = client->DoGet(call_options, info_result.ValueOrDie()->endpoints()[0].ticket);
 	if (!stream_result.ok()) {
@@ -57,8 +60,7 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 	auto schema_col = table->GetColumnByName("db_schema_name");
 	auto catalog_col = table->GetColumnByName("catalog_name");
 	if (!schema_col) {
-		// Fallback or error?
-		return;
+		throw IOException("Failed to load schemas: GetDbSchemas result did not include db_schema_name column");
 	}
 
 	auto schemas = std::static_pointer_cast<arrow::StringArray>(schema_col->chunk(0));

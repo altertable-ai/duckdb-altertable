@@ -1,6 +1,6 @@
 # Altertable - DuckDB Arrow Flight SQL Extension
 
-A DuckDB extension for connecting to Altertable. Query Alertable databases directly from DuckDB using the high-performance Arrow Flight protocol.
+A DuckDB extension for connecting to Altertable. Query Altertable databases directly from DuckDB using the high-performance Arrow Flight protocol.
 
 ## Features
 
@@ -40,6 +40,28 @@ DETACH db;
 | `user`     | Username for authentication        | `your-altertable-user`     |
 | `password` | Password for authentication        | `your-altertable-password` |
 | `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
+
+Default connection behavior:
+- `host=flight.altertable.ai`
+- `port=443`
+- `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
+
+### Secrets
+
+Use DuckDB secrets so credentials are not repeated in SQL statements:
+
+```sql
+CREATE SECRET my_altertable (
+    TYPE altertable,
+    HOST 'flight.altertable.ai',
+    PORT '443',
+    USER 'your-user',
+    PASSWORD 'your-password',
+    SSL 'true'
+);
+
+ATTACH '' AS analytics (TYPE altertable, SECRET my_altertable);
+```
 
 ## Functions
 
@@ -144,7 +166,7 @@ export VCPKG_TOOLCHAIN_PATH=$(pwd)/scripts/buildsystems/vcpkg.cmake
 ```bash
 git clone --recurse-submodules https://github.com/altertable-ai/duckdb-altertable.git
 cd duckdb-altertable
-make
+GEN=ninja make
 ```
 
 Build outputs:
@@ -162,7 +184,10 @@ export ALTERTABLE_TEST_USER=admin
 export ALTERTABLE_TEST_PASSWORD=password
 export ALTERTABLE_TEST_SSL=false
 
-# Run tests
+# Run full tests against the mock server (recommended)
+make test-mock
+
+# Or run sqllogictest directly
 make test
 ```
 

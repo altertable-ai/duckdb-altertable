@@ -6,6 +6,7 @@
 #include "altertable_optimizer.hpp"
 
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/common/exception.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/main/database_manager.hpp"
@@ -35,8 +36,10 @@ unique_ptr<BaseSecret> CreateAltertableSecretFunction(ClientContext &context, Cr
 			result->secret_map["password"] = named_param.second.ToString();
 		} else if (lower_name == "port") {
 			result->secret_map["port"] = named_param.second.ToString();
+		} else if (lower_name == "ssl") {
+			result->secret_map["ssl"] = named_param.second.ToString();
 		} else {
-			throw InternalException("Unknown named parameter passed to CreateAltertableSecretFunction: " + lower_name);
+			throw BinderException("Unknown named parameter passed to CREATE SECRET (TYPE altertable): " + lower_name);
 		}
 	}
 
@@ -52,6 +55,7 @@ void SetAltertableSecretParameters(CreateSecretFunction &function) {
 	function.named_parameters["user"] = LogicalType::VARCHAR;
 	function.named_parameters["database"] = LogicalType::VARCHAR; // alias for dbname
 	function.named_parameters["dbname"] = LogicalType::VARCHAR;
+	function.named_parameters["ssl"] = LogicalType::VARCHAR;
 }
 
 static void LoadInternal(ExtensionLoader &loader) {

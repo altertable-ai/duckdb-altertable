@@ -55,8 +55,13 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 
 	if (config.find("host") != config.end())
 		host = config["host"];
-	if (config.find("port") != config.end())
-		port = std::stoi(config["port"]);
+	if (config.find("port") != config.end()) {
+		try {
+			port = std::stoi(config["port"]);
+		} catch (const std::exception &) {
+			throw InvalidInputException("Invalid ALTERTABLE port value '%s'", config["port"]);
+		}
+	}
 	if (config.find("user") != config.end())
 		user = config["user"];
 	if (config.find("password") != config.end())
@@ -86,25 +91,22 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 		throw IOException("Failed to connect to Flight server: " + flight_client_result.status().ToString());
 	}
 
+	auto flight_client = std::move(flight_client_result).ValueOrDie();
+
 	// Authentication setup
 	arrow::flight::FlightCallOptions call_options;
 	if (!user.empty() && !password.empty()) {
-		// Perform basic authentication using the flight client
-		auto &flight_client = flight_client_result.ValueOrDie();
 		auto auth_result = flight_client->AuthenticateBasicToken({}, user, password);
 		if (!auth_result.ok()) {
 			throw IOException("Authentication failed: " + auth_result.status().ToString());
 		}
 
-		// Get the bearer token from authentication result
 		auto bearer_token = auth_result.ValueOrDie();
-
-		// Add the bearer token to call options for subsequent requests
 		call_options.headers.push_back(bearer_token);
 	}
 
 	auto sql_client =
-	    std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client_result.ValueOrDie()));
+	    std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));
 	connection->call_options = call_options;
@@ -175,19 +177,22 @@ unique_ptr<AltertableResult> AltertableConnection::Query(const string &query) {
 	auto info = Execute(query);
 
 	// For DDL/DML statements and SELECT queries, we need to fetch the results
-	if (!info->endpoints().empty()) {
-		auto stream_result = GetClient()->DoGet(GetCallOptions(), info->endpoints()[0].ticket);
-		if (stream_result.ok()) {
-			auto stream = std::move(stream_result.ValueOrDie());
-			// Read all batches into a table
-			auto table_result = stream->ToTable();
-			if (table_result.ok()) {
-				return make_uniq<AltertableResult>(table_result.ValueOrDie());
-			}
-		}
+	if (info->endpoints().empty()) {
+		return make_uniq<AltertableResult>();
 	}
 
-	return make_uniq<AltertableResult>();
+	auto stream_result = GetClient()->DoGet(GetCallOptions(), info->endpoints()[0].ticket);
+	if (!stream_result.ok()) {
+		throw IOException("Failed to get stream: " + stream_result.status().ToString());
+	}
+	auto stream = std::move(stream_result.ValueOrDie());
+
+	// Read all batches into a table
+	auto table_result = stream->ToTable();
+	if (!table_result.ok()) {
+		throw IOException("Failed to read stream table: " + table_result.status().ToString());
+	}
+	return make_uniq<AltertableResult>(table_result.ValueOrDie());
 }
 
 } // namespace duckdb

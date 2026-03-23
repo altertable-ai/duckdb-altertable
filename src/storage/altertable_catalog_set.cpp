@@ -70,7 +70,7 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 	}
 	drop_query += KeywordHelper::WriteQuoted(info.name, '"');
 	if (info.cascade) {
-		drop_query += "CASCADE";
+		drop_query += " CASCADE";
 	}
 	transaction.Query(drop_query);
 

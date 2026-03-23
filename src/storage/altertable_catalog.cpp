@@ -83,14 +83,17 @@ string AltertableCatalog::GetConnectionString(ClientContext &context, const stri
 	auto secret_entry = GetSecret(context, secret_name);
 	if (secret_entry) {
 		// secret found - read data
-		const auto &kv_secret = dynamic_cast<const KeyValueSecret &>(*secret_entry->secret);
+		auto kv_secret = dynamic_cast<const KeyValueSecret *>(secret_entry->secret.get());
+		if (!kv_secret) {
+			throw BinderException("Secret with name \"%s\" is not a key-value secret", secret_name);
+		}
 		string new_connection_info;
 
-		new_connection_info += AddConnectionOption(kv_secret, "user");
-		new_connection_info += AddConnectionOption(kv_secret, "password");
-		new_connection_info += AddConnectionOption(kv_secret, "host");
-		new_connection_info += AddConnectionOption(kv_secret, "port");
-		new_connection_info += AddConnectionOption(kv_secret, "ssl");
+		new_connection_info += AddConnectionOption(*kv_secret, "user");
+		new_connection_info += AddConnectionOption(*kv_secret, "password");
+		new_connection_info += AddConnectionOption(*kv_secret, "host");
+		new_connection_info += AddConnectionOption(*kv_secret, "port");
+		new_connection_info += AddConnectionOption(*kv_secret, "ssl");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {
