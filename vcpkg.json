@@ -5,7 +5,7 @@
       "name": "arrow",
       "features": [
         "flight",
-        "flight-sql",
+        "flightsql",
         "parquet"
       ]
     }
