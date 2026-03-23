@@ -54,9 +54,9 @@ static unique_ptr<FunctionData> AltertableExecuteBind(ClientContext &context, Ta
 	}
 	auto &altertable_catalog = db->GetCatalog().Cast<AltertableCatalog>();
 	if (altertable_catalog.access_mode == AccessMode::READ_ONLY) {
-		throw BinderException(
-		    "Cannot use altertable_execute on read-only attached database \"%s\" (omit READ_ONLY or use read-write ATTACH)",
-		    db_name);
+		throw BinderException("Cannot use altertable_execute on read-only attached database \"%s\" (omit READ_ONLY or "
+		                      "use read-write ATTACH)",
+		                      db_name);
 	}
 	result->dsn = altertable_catalog.connection_string;
 

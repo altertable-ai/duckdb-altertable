@@ -56,7 +56,6 @@ LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type) 
 	}
 }
 
-
 string AltertableUtils::TypeToString(const LogicalType &input) {
 	if (input.HasAlias()) {
 		if (StringUtil::CIEquals(input.GetAlias(), "wkb_blob")) {
