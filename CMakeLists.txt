@@ -34,10 +34,26 @@ set(CMAKE_C_FLAGS_RELEASE
 set(CMAKE_C_FLAGS_RELWITHDEBINFO
     "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${ALTERTABLE_EXTRA_CFLAGS}")
 
-# Get the Arrow include directories
-get_target_property(ARROW_INCLUDE_DIRS Arrow::arrow_shared INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(ARROW_FLIGHT_INCLUDE_DIRS ArrowFlight::arrow_flight_shared INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(ARROW_FLIGHT_SQL_INCLUDE_DIRS ArrowFlightSql::arrow_flight_sql_shared INTERFACE_INCLUDE_DIRECTORIES)
+# Prefer shared Arrow libs; fall back to static (vcpkg static triplets)
+if(TARGET Arrow::arrow_shared)
+  set(ARROW_LIB Arrow::arrow_shared)
+else()
+  set(ARROW_LIB Arrow::arrow_static)
+endif()
+if(TARGET ArrowFlight::arrow_flight_shared)
+  set(ARROW_FLIGHT_LIB ArrowFlight::arrow_flight_shared)
+else()
+  set(ARROW_FLIGHT_LIB ArrowFlight::arrow_flight_static)
+endif()
+if(TARGET ArrowFlightSql::arrow_flight_sql_shared)
+  set(ARROW_FLIGHT_SQL_LIB ArrowFlightSql::arrow_flight_sql_shared)
+else()
+  set(ARROW_FLIGHT_SQL_LIB ArrowFlightSql::arrow_flight_sql_static)
+endif()
+
+get_target_property(ARROW_INCLUDE_DIRS ${ARROW_LIB} INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ARROW_FLIGHT_INCLUDE_DIRS ${ARROW_FLIGHT_LIB} INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ARROW_FLIGHT_SQL_INCLUDE_DIRS ${ARROW_FLIGHT_SQL_LIB} INTERFACE_INCLUDE_DIRECTORIES)
 
 include_directories(
     include 
@@ -63,9 +79,9 @@ target_include_directories(
 
 target_link_libraries(${TARGET_NAME}_loadable_extension 
     ${OPENSSL_LIBRARIES}
-    Arrow::arrow_shared
-    ArrowFlight::arrow_flight_shared
-    ArrowFlightSql::arrow_flight_sql_shared
+    ${ARROW_LIB}
+    ${ARROW_FLIGHT_LIB}
+    ${ARROW_FLIGHT_SQL_LIB}
 )
 
 # Override the C++ standard for this extension to C++17
