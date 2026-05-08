@@ -27,8 +27,7 @@ bool AltertableLimitPushdownOptimizer::IsAltertableScan(LogicalOperator &op) {
 		return false;
 	}
 	auto &get = op.Cast<LogicalGet>();
-	// Check if this is an altertable_scan or altertable_scan_pushdown function
-	return get.function.name == "altertable_scan" || get.function.name == "altertable_scan_pushdown";
+	return IsAltertableScanTableFunction(get.function);
 }
 
 void AltertableLimitPushdownOptimizer::PushLimitIntoScan(LogicalOperator &scan_op, idx_t limit_value) {
@@ -305,7 +304,14 @@ private:
 			// Column bindings follow projection_ids when set (see LogicalGet::GetColumnBindings).
 			auto emit_column = [&](const ColumnIndex &column_id) {
 				if (column_id.IsRowIdColumn() || column_id.IsVirtualColumn()) {
-					throw NotImplementedException("Cannot push down virtual Altertable column");
+					// Virtual/rowid columns (e.g. after column pruning for COUNT(*)) can't
+					// be fetched from remote. Emit a cheap placeholder so the position in
+					// names/types stays in sync with GetColumnBindings().
+					select_list.push_back("1");
+					result.names.push_back("__altertable_virtual");
+					result.types.push_back(column_id.IsRowIdColumn() ? LogicalType::ROW_TYPE
+					                                                 : LogicalType::BIGINT);
+					return;
 				}
 				auto col_idx = column_id.GetPrimaryIndex();
 				if (col_idx >= bind_data.names.size()) {

@@ -9,6 +9,7 @@
 #pragma once
 
 #include "altertable_utils.hpp"
+#include "duckdb/function/table_function.hpp"
 #include "storage/altertable_connection_pool.hpp"
 
 namespace duckdb {
@@ -77,6 +78,9 @@ public:
 	static void PrepareBind(AltertableVersion version, ClientContext &context, AltertableBindData &bind,
 	                        idx_t approx_num_pages);
 };
+
+//! Recognize scans from ATTACH ... (TYPE ALTERTABLE) and altertable_scan(); `function.name` is not always reliable.
+bool IsAltertableScanTableFunction(const TableFunction &function);
 
 class AltertableScanFunctionFilterPushdown : public TableFunction {
 public:

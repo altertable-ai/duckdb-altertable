@@ -842,4 +842,16 @@ AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
 	filter_pushdown = true;
 }
 
+bool IsAltertableScanTableFunction(const TableFunction &function) {
+	static AltertableScanFunction scan;
+	static AltertableScanFunctionFilterPushdown scan_pushdown;
+	if (function.function == scan.function && function.bind == scan.bind) {
+		return true;
+	}
+	if (function.function == scan_pushdown.function && function.bind == scan_pushdown.bind) {
+		return true;
+	}
+	return function.name == "altertable_scan" || function.name == "altertable_scan_pushdown";
+}
+
 } // namespace duckdb
