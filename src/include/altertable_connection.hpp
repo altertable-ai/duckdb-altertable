@@ -52,7 +52,8 @@ public:
 
 	// Execute a query and return a reader for the results
 	std::unique_ptr<arrow::flight::FlightStreamReader> QueryStream(const string &query);
-	std::unique_ptr<arrow::flight::FlightStreamReader> QueryEndpointStream(const arrow::flight::FlightEndpoint &endpoint);
+	std::unique_ptr<arrow::flight::FlightStreamReader>
+	QueryEndpointStream(const arrow::flight::FlightEndpoint &endpoint);
 
 	// Execute multiple queries (stub for compatibility with transaction)
 	vector<unique_ptr<AltertableResult>> ExecuteQueries(const string &queries);
