@@ -309,8 +309,7 @@ private:
 					// names/types stays in sync with GetColumnBindings().
 					select_list.push_back("1");
 					result.names.push_back("__altertable_virtual");
-					result.types.push_back(column_id.IsRowIdColumn() ? LogicalType::ROW_TYPE
-					                                                 : LogicalType::BIGINT);
+					result.types.push_back(column_id.IsRowIdColumn() ? LogicalType::ROW_TYPE : LogicalType::BIGINT);
 					return;
 				}
 				auto col_idx = column_id.GetPrimaryIndex();
