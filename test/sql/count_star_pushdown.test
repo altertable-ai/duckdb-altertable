@@ -1,0 +1,94 @@
+# name: test/sql/count_star_pushdown.test
+# description: Test aggregate query pushdown for attached Altertable scans
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS count_pushdown_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('count_pushdown_db', 'DROP TABLE IF EXISTS __sqllogic_count_pushdown_hits')
+
+statement ok
+CALL altertable_execute('count_pushdown_db', 'CREATE TABLE __sqllogic_count_pushdown_hits (id INTEGER)')
+
+statement ok
+CALL altertable_execute('count_pushdown_db', 'INSERT INTO __sqllogic_count_pushdown_hits VALUES (1), (1), (2)')
+
+query II
+SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
+----
+3	4
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
+----
+physical_plan	<REGEX>:.*COUNT.*
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
+----
+physical_plan	<!REGEX>:.*UNGROUPED_AGGREGATE.*
+
+query II
+SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
+----
+1	2
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
+----
+physical_plan	<REGEX>:.*COUNT.*
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
+----
+physical_plan	<!REGEX>:.*FILTER.*
+
+query II
+SELECT id, COUNT(*) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits GROUP BY id ORDER BY id
+----
+1	2
+2	1
+
+query II
+EXPLAIN SELECT id, COUNT(*) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits GROUP BY id ORDER BY id
+----
+physical_plan	<REGEX>:.*Query:.*SELECT.*
+
+query I
+SELECT id FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id >= 1 ORDER BY id DESC LIMIT 1
+----
+2
+
+query II
+EXPLAIN SELECT id FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id >= 1 ORDER BY id DESC LIMIT 1
+----
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
+
+query II
+EXPLAIN SELECT id FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id >= 1 ORDER BY id DESC LIMIT 1
+----
+physical_plan	<!REGEX>:.*STREAMING_LIMIT.*
+
+query II
+EXPLAIN SELECT id FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id >= 1 ORDER BY id DESC LIMIT 1
+----
+physical_plan	<!REGEX>:.*ORDER_BY.*
+
+statement ok
+CALL altertable_execute('count_pushdown_db', 'DROP TABLE __sqllogic_count_pushdown_hits')
+
+statement ok
+DETACH count_pushdown_db

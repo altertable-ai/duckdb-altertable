@@ -125,6 +125,16 @@ static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunc
 	return std::move(bind_data);
 }
 
+static string AltertableTableReference(const AltertableBindData &bind_data) {
+	if (!bind_data.catalog_name.empty()) {
+		return AltertableUtils::QuoteAltertableIdentifier(bind_data.catalog_name) + "." +
+		       AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
+		       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
+	}
+	return AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
+	       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
+}
+
 static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context, TableFunctionInitInput &input,
                                                          AltertableGlobalState &gstate);
 
@@ -274,15 +284,7 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 			query = "SELECT *";
 		}
 
-		// Use three-part identifier if catalog is set
-		if (!bind_data.catalog_name.empty()) {
-			query += " FROM " + AltertableUtils::QuoteAltertableIdentifier(bind_data.catalog_name) + "." +
-			         AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-			         AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-		} else {
-			query += " FROM " + AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-			         AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-		}
+		query += " FROM " + AltertableTableReference(bind_data);
 
 		if (input.filters) {
 			string filter_string;
@@ -810,11 +812,22 @@ static BindInfo AltertableScanGetBindInfo(const optional_ptr<FunctionData> bind_
 	return BindInfo(*table);
 }
 
+static InsertionOrderPreservingMap<string> AltertableScanToString(TableFunctionToStringInput &input) {
+	auto &bind_data = input.bind_data->Cast<AltertableBindData>();
+	InsertionOrderPreservingMap<string> result;
+	result["Function"] = "ALTERTABLE_SCAN";
+	if (!bind_data.sql.empty()) {
+		result["Query"] = bind_data.sql;
+	}
+	return result;
+}
+
 AltertableScanFunction::AltertableScanFunction()
     : TableFunction("altertable_scan", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
 	get_bind_info = AltertableScanGetBindInfo;
+	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;
 }
@@ -824,6 +837,7 @@ AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
 	get_bind_info = AltertableScanGetBindInfo;
+	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;
 }
