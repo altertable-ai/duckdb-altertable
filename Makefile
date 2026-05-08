@@ -7,6 +7,16 @@ EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 # Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
+# GCC 14 (e.g. manylinux/RHEL toolchains) reports duplicate symbols for
+# duckdb::BufferedFileWriter::DEFAULT_OPEN_FLAGS when linking tools/plan_serializer
+# against libduckdb_static.a (constexpr + out-of-line definition in DuckDB).
+# plan_serializer is only built when BUILD_SHELL is on; skip shell + plan_serializer.
+# Set SKIP_DUCKDB_SHELL=0 if you need the duckdb CLI (and accept possible link failure on GCC 14).
+SKIP_DUCKDB_SHELL ?= 1
+ifeq ($(SKIP_DUCKDB_SHELL),1)
+EXT_FLAGS += -DBUILD_SHELL=OFF
+endif
+
 ifeq ($(shell uname -s),Darwin)
 	MACOS_SDK_PATH := $(shell xcrun --show-sdk-path 2>/dev/null)
 ifneq ($(MACOS_SDK_PATH),)
