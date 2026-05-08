@@ -50,15 +50,9 @@ public:
 	std::shared_ptr<arrow::Schema> GetExecuteSchema(const string &query);
 	int64_t ExecuteUpdate(const string &query);
 
-	// Execute a query and return a reader for the results
-	std::unique_ptr<arrow::flight::FlightStreamReader> QueryStream(const string &query);
 	std::unique_ptr<arrow::flight::FlightStreamReader>
 	QueryEndpointStream(const arrow::flight::FlightEndpoint &endpoint);
 
-	// Execute multiple queries (stub for compatibility with transaction)
-	vector<unique_ptr<AltertableResult>> ExecuteQueries(const string &queries);
-
-	// Query method that returns AltertableResult (stub for compatibility with transaction)
 	unique_ptr<AltertableResult> Query(const string &query);
 
 	// Get the FlightSqlClient

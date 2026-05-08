@@ -1,0 +1,41 @@
+# name: test/sql/regress_double_precision.test
+# description: Regression test: DOUBLE columns must not be created as FLOAT (TypeToString bug)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS write_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('write_db', 'DROP TABLE IF EXISTS __regress_double_precision')
+
+# CTAS emits a remote CREATE TABLE whose column types come from TypeToString().
+# Before the fix, TypeToString(DOUBLE) returned "FLOAT", silently creating a
+# 32-bit column on the server and losing precision for DOUBLE values.
+statement ok
+CREATE TABLE write_db.main.__regress_double_precision AS
+SELECT 3.14159265358979::DOUBLE AS pi_d, 3.14159265358979::FLOAT AS pi_f
+
+# DOUBLE must retain 15 significant digits on round-trip.
+# If pi_d was silently stored as FLOAT, both columns would read back as 3.1415927.
+query RR
+SELECT pi_d, pi_f FROM write_db.main.__regress_double_precision
+----
+3.14159265358979	3.1415927
+
+statement ok
+DROP TABLE write_db.main.__regress_double_precision
+
+statement ok
+DETACH write_db

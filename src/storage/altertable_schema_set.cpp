@@ -76,34 +76,34 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 		throw IOException("Failed to load schemas: GetDbSchemas result did not include db_schema_name column");
 	}
 
-	auto schemas = std::static_pointer_cast<arrow::StringArray>(schema_col->chunk(0));
-	std::shared_ptr<arrow::StringArray> catalogs;
-	if (catalog_col) {
-		catalogs = std::static_pointer_cast<arrow::StringArray>(catalog_col->chunk(0));
-	}
+	for (int64_t chunk_idx = 0; chunk_idx < schema_col->num_chunks(); chunk_idx++) {
+		auto schema_chunk = std::static_pointer_cast<arrow::StringArray>(schema_col->chunk(chunk_idx));
+		std::shared_ptr<arrow::StringArray> catalog_chunk;
+		if (catalog_col && chunk_idx < catalog_col->num_chunks()) {
+			catalog_chunk = std::static_pointer_cast<arrow::StringArray>(catalog_col->chunk(chunk_idx));
+		}
 
-	for (int64_t i = 0; i < schemas->length(); ++i) {
-		// If we have a remote catalog filter and the row's catalog doesn't match, skip it
-		if (!remote_catalog.empty() && catalogs && catalogs->IsValid(i)) {
-			string row_catalog = catalogs->GetString(i);
-			if (row_catalog != remote_catalog) {
+		for (int64_t i = 0; i < schema_chunk->length(); ++i) {
+			// If we have a remote catalog filter and the row's catalog doesn't match, skip it
+			if (!remote_catalog.empty() && catalog_chunk && catalog_chunk->IsValid(i)) {
+				string row_catalog = catalog_chunk->GetString(i);
+				if (row_catalog != remote_catalog) {
+					continue;
+				}
+			}
+
+			string schema_name = schema_chunk->GetString(i);
+			if (!schema_to_load.empty() && schema_name != schema_to_load) {
 				continue;
 			}
+
+			CreateSchemaInfo info;
+			info.schema = schema_name;
+			info.internal = AltertableSchemaEntry::SchemaIsInternal(schema_name);
+
+			auto schema = make_shared_ptr<AltertableSchemaEntry>(catalog, info, nullptr, nullptr);
+			CreateEntry(transaction, std::move(schema));
 		}
-
-		string schema_name = schemas->GetString(i);
-		if (!schema_to_load.empty() && schema_name != schema_to_load) {
-			continue;
-		}
-
-		CreateSchemaInfo info;
-		info.schema = schema_name;
-		info.internal = AltertableSchemaEntry::SchemaIsInternal(schema_name);
-
-		// We pass empty slices for now as we'll load tables lazily or in a different way
-		auto schema = make_shared_ptr<AltertableSchemaEntry>(catalog, info, nullptr, nullptr);
-
-		CreateEntry(transaction, std::move(schema));
 	}
 }
 

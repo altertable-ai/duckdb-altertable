@@ -36,7 +36,6 @@ public:
 	unique_ptr<AltertableResult> Query(const string &query);
 	int64_t ExecuteUpdate(const string &query);
 	unique_ptr<AltertableResult> QueryWithoutTransaction(const string &query);
-	vector<unique_ptr<AltertableResult>> ExecuteQueries(const string &queries);
 	static AltertableTransaction &Get(ClientContext &context, Catalog &catalog);
 
 	optional_ptr<CatalogEntry> ReferenceEntry(shared_ptr<CatalogEntry> &entry);

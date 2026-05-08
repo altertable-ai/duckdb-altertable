@@ -119,7 +119,7 @@ std::shared_ptr<arrow::Schema> AltertableConnection::GetExecuteSchema(const stri
 		auto info = Execute(query);
 		auto schema_result = info->GetSchema(&memo);
 		if (!schema_result.ok()) {
-			throw IOException("Failed to get query schema: " + result.status().ToString());
+			throw IOException("Failed to get query schema: " + schema_result.status().ToString());
 		}
 		return schema_result.ValueOrDie();
 	}
@@ -140,16 +140,6 @@ int64_t AltertableConnection::ExecuteUpdate(const string &query) {
 		throw IOException("Failed to execute update: " + result.status().ToString());
 	}
 	return result.ValueOrDie();
-}
-
-std::unique_ptr<arrow::flight::FlightStreamReader> AltertableConnection::QueryStream(const string &query) {
-	auto info = Execute(query);
-
-	if (info->endpoints().empty()) {
-		throw IOException("No endpoints returned for query");
-	}
-
-	return QueryEndpointStream(info->endpoints()[0]);
 }
 
 std::unique_ptr<arrow::flight::FlightStreamReader>
@@ -179,14 +169,6 @@ void AltertableConnection::DebugSetPrintQueries(bool print) {
 
 bool AltertableConnection::DebugPrintQueries() {
 	return debug_altertable_print_queries;
-}
-
-vector<unique_ptr<AltertableResult>> AltertableConnection::ExecuteQueries(const string &queries) {
-	// For now, just execute as a single query
-	Execute(queries);
-	vector<unique_ptr<AltertableResult>> results;
-	results.push_back(make_uniq<AltertableResult>());
-	return results;
 }
 
 unique_ptr<AltertableResult> AltertableConnection::Query(const string &query) {

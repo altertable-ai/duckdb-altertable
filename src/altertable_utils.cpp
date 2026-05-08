@@ -256,9 +256,9 @@ string AltertableUtils::TypeToString(const LogicalType &input) {
 	}
 	switch (input.id()) {
 	case LogicalTypeId::FLOAT:
-		return "REAL";
-	case LogicalTypeId::DOUBLE:
 		return "FLOAT";
+	case LogicalTypeId::DOUBLE:
+		return "DOUBLE";
 	case LogicalTypeId::BLOB:
 		return "BYTEA";
 	case LogicalTypeId::LIST:
@@ -278,21 +278,12 @@ string AltertableUtils::TypeToString(const LogicalType &input) {
 	}
 }
 
-LogicalType GetGeometryType() {
-	auto blob_type = LogicalType(LogicalTypeId::BLOB);
-	blob_type.SetAlias("WKB_BLOB");
-	return blob_type;
-}
-
 LogicalType AltertableUtils::RemoveAlias(const LogicalType &type) {
 	if (!type.HasAlias()) {
 		return type;
 	}
 	if (StringUtil::CIEquals(type.GetAlias(), "json")) {
 		return type;
-	}
-	if (StringUtil::CIEquals(type.GetAlias(), "geometry")) {
-		return GetGeometryType();
 	}
 	switch (type.id()) {
 	case LogicalTypeId::STRUCT: {
@@ -314,45 +305,6 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
                                                optional_ptr<AltertableSchemaEntry> schema,
                                                const AltertableTypeData &type_info, AltertableType &altertable_type) {
 	auto &pgtypename = type_info.type_name;
-
-	// altertable array types start with an _
-	if (StringUtil::StartsWith(pgtypename, "_")) {
-		if (transaction) {
-			auto context = transaction->context.lock();
-			if (!context) {
-				throw InternalException("Context is destroyed!?");
-			}
-			Value array_as_varchar;
-			if (context->TryGetCurrentSetting("altertable_array_as_varchar", array_as_varchar)) {
-				if (BooleanValue::Get(array_as_varchar)) {
-					altertable_type.info = AltertableTypeAnnotation::CAST_TO_VARCHAR;
-					return LogicalType::VARCHAR;
-				}
-			}
-		}
-		// get the array dimension information
-		idx_t dimensions = type_info.array_dimensions;
-		if (dimensions == 0) {
-			dimensions = 1;
-		}
-		// fetch the child type of the array
-		AltertableTypeData child_type_info;
-		child_type_info.type_name = pgtypename.substr(1);
-		child_type_info.type_modifier = type_info.type_modifier;
-		AltertableType child_altertable_type;
-		auto child_type =
-		    AltertableUtils::TypeToLogicalType(transaction, schema, child_type_info, child_altertable_type);
-		// construct the child type based on the number of dimensions
-		for (idx_t i = 1; i < dimensions; i++) {
-			AltertableType new_altertable_type;
-			new_altertable_type.children.push_back(std::move(child_altertable_type));
-			child_altertable_type = std::move(new_altertable_type);
-			child_type = LogicalType::LIST(child_type);
-		}
-		auto result = LogicalType::LIST(child_type);
-		altertable_type.children.push_back(std::move(child_altertable_type));
-		return result;
-	}
 
 	// Convert type name to uppercase for case-insensitive comparison
 	auto type_upper = StringUtil::Upper(pgtypename);
@@ -386,21 +338,13 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 		auto width = ((type_info.type_modifier - sizeof(int32_t)) >> 16) & 0xffff;
 		auto scale = (((type_info.type_modifier - sizeof(int32_t)) & 0x7ff) ^ 1024) - 1024;
 		if (type_info.type_modifier == -1 || width < 0 || scale < 0 || width > 38) {
-			// fallback to double
 			altertable_type.info = AltertableTypeAnnotation::NUMERIC_AS_DOUBLE;
 			return LogicalType::DOUBLE;
 		}
 		return LogicalType::DECIMAL(width, scale);
-	} else if (pgtypename == "char" || pgtypename == "bpchar") {
-		altertable_type.info = AltertableTypeAnnotation::FIXED_LENGTH_CHAR;
+	} else if (type_upper == "VARCHAR" || pgtypename == "varchar" || pgtypename == "text" || pgtypename == "json" ||
+	           pgtypename == "char" || pgtypename == "bpchar" || pgtypename == "jsonb") {
 		return LogicalType::VARCHAR;
-	} else if (type_upper == "VARCHAR" || pgtypename == "varchar" || pgtypename == "text" || pgtypename == "json") {
-		return LogicalType::VARCHAR;
-	} else if (pgtypename == "jsonb") {
-		altertable_type.info = AltertableTypeAnnotation::JSONB;
-		return LogicalType::VARCHAR;
-	} else if (pgtypename == "geometry") {
-		return GetGeometryType();
 	} else if (type_upper == "DATE" || pgtypename == "date") {
 		return LogicalType::DATE;
 	} else if (type_upper == "BLOB" || pgtypename == "bytea") {
@@ -417,30 +361,6 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 		return LogicalType::INTERVAL;
 	} else if (type_upper == "UUID" || pgtypename == "uuid") {
 		return LogicalType::UUID;
-	} else if (pgtypename == "point") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_POINT;
-		child_list_t<LogicalType> point_struct;
-		point_struct.emplace_back(make_pair("x", LogicalType::DOUBLE));
-		point_struct.emplace_back(make_pair("y", LogicalType::DOUBLE));
-		return LogicalType::STRUCT(point_struct);
-	} else if (pgtypename == "line") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_LINE;
-		return LogicalType::LIST(LogicalType::DOUBLE);
-	} else if (pgtypename == "lseg") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_LINE_SEGMENT;
-		return LogicalType::LIST(LogicalType::DOUBLE);
-	} else if (pgtypename == "box") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_BOX;
-		return LogicalType::LIST(LogicalType::DOUBLE);
-	} else if (pgtypename == "path") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_PATH;
-		return LogicalType::LIST(LogicalType::DOUBLE);
-	} else if (pgtypename == "polygon") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_POLYGON;
-		return LogicalType::LIST(LogicalType::DOUBLE);
-	} else if (pgtypename == "circle") {
-		altertable_type.info = AltertableTypeAnnotation::GEOM_CIRCLE;
-		return LogicalType::LIST(LogicalType::DOUBLE);
 	} else {
 		// unsupported type - fallback to varchar
 		altertable_type.info = AltertableTypeAnnotation::CAST_TO_VARCHAR;

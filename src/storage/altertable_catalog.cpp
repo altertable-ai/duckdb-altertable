@@ -36,18 +36,34 @@ string AltertableCatalog::ExtractCatalogFromConnectionString(const string &conne
 	return AltertableConnectionConfig::Parse(connection_string).catalog;
 }
 
+static string QuoteDSNValue(const string &value) {
+	bool needs_quoting = value.empty();
+	for (char c : value) {
+		if (StringUtil::CharacterIsSpace(c) || c == '\'' || c == '"' || c == '\\' || c == '=') {
+			needs_quoting = true;
+			break;
+		}
+	}
+	if (!needs_quoting) {
+		return value;
+	}
+	string result = "'";
+	for (char c : value) {
+		if (c == '\'' || c == '\\') {
+			result += '\\';
+		}
+		result += c;
+	}
+	result += "'";
+	return result;
+}
+
 string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
 	Value input_val = kv_secret.TryGetValue(name);
 	if (input_val.IsNull()) {
-		// not provided
 		return string();
 	}
-	string result;
-	result += name;
-	result += "=";
-	result += input_val.ToString(); // No need to escape for DSN parsing in our simple parser
-	result += " ";
-	return result;
+	return name + "=" + QuoteDSNValue(input_val.ToString()) + " ";
 }
 
 unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {

@@ -62,7 +62,6 @@ void AltertableTableSet::AddColumn(optional_ptr<AltertableTransaction> transacti
 	auto column_name = result.GetString(row, column_index);
 	type_info.type_name = result.GetString(row, column_index + 1);
 	type_info.type_modifier = result.GetInt64(row, column_index + 2);
-	type_info.array_dimensions = result.GetInt64(row, column_index + 3);
 	bool is_not_null = result.GetBool(row, column_index + 5);
 	string default_value;
 

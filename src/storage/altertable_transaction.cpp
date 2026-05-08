@@ -114,17 +114,6 @@ unique_ptr<AltertableResult> AltertableTransaction::QueryWithoutTransaction(cons
 	return con.Query(query);
 }
 
-vector<unique_ptr<AltertableResult>> AltertableTransaction::ExecuteQueries(const string &queries) {
-	auto &con = GetConnectionRaw();
-	if (transaction_state == AltertableTransactionState::TRANSACTION_NOT_YET_STARTED) {
-		transaction_state = AltertableTransactionState::TRANSACTION_STARTED;
-		string transaction_start = GetBeginTransactionQuery();
-		// Execute BEGIN statement separately since DuckDB doesn't support multiple statements
-		con.Execute(transaction_start);
-	}
-	return con.ExecuteQueries(queries);
-}
-
 optional_ptr<CatalogEntry> AltertableTransaction::ReferenceEntry(shared_ptr<CatalogEntry> &entry) {
 	auto &ref = *entry;
 	referenced_entries.emplace(ref, entry);

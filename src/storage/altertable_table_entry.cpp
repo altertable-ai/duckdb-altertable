@@ -58,17 +58,10 @@ TableFunction AltertableTableEntry::GetScanFunction(ClientContext &context, uniq
 	AltertableScanFunction::PrepareBind(altertable_catalog.GetAltertableVersion(), context, *result, approx_num_pages);
 
 	bind_data = std::move(result);
-	auto function = AltertableScanFunction();
-	Value filter_pushdown;
-	if (context.TryGetCurrentSetting("altertable_experimental_filter_pushdown", filter_pushdown)) {
-		function.filter_pushdown = BooleanValue::Get(filter_pushdown);
-	}
-	return function;
+	return AltertableScanFunction();
 }
 
 TableStorageInfo AltertableTableEntry::GetStorageInfo(ClientContext &context) {
-	auto &transaction = Transaction::Get(context, catalog).Cast<AltertableTransaction>();
-	auto &db = transaction.GetConnection();
 	TableStorageInfo result;
 	result.cardinality = 0;
 	// get index info based on constraints
