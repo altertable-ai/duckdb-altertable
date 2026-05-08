@@ -19,6 +19,9 @@ jobs:
       duckdb_version: v1.5.2
       ci_tools_version: v1.5.2
       extension_name: altertable
+      # Avoid linking tools/plan_serializer on GCC 14 (duplicate BufferedFileWriter::DEFAULT_OPEN_FLAGS vs libduckdb_static.a).
+      # Matches local Makefile SKIP_DUCKDB_SHELL / -DBUILD_SHELL=OFF.
+      build_duckdb_shell: false
 
   code-quality-check:
     name: Code Quality Check
