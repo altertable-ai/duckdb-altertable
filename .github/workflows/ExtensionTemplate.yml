@@ -68,7 +68,14 @@ jobs:
         run: |
           make
 
+      # Run the integration tests with a mock API on Linux only
       - name: Test
+        env:
+          ALTERTABLE_TEST_HOST: localhost
+          ALTERTABLE_TEST_PORT: 15002
+          ALTERTABLE_TEST_USER: testuser
+          ALTERTABLE_TEST_PASSWORD: testpass
+          ALTERTABLE_TEST_SSL: false
         run: |
           make test
 
@@ -122,12 +129,6 @@ jobs:
           make
 
       - name: Test
-        env:
-          ALTERTABLE_TEST_HOST: localhost
-          ALTERTABLE_TEST_PORT: 15002
-          ALTERTABLE_TEST_USER: testuser
-          ALTERTABLE_TEST_PASSWORD: testpass
-          ALTERTABLE_TEST_SSL: false
         run: |
           make test
 
