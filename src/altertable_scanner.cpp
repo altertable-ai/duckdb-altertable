@@ -21,6 +21,8 @@ struct AltertableLocalState : public LocalTableFunctionState {
 	bool done = false;
 	AltertableConnection connection;
 	AltertablePoolConnection pool_connection;
+	std::unique_ptr<arrow::flight::FlightInfo> flight_info;
+	idx_t endpoint_idx = 0;
 	std::unique_ptr<arrow::flight::FlightStreamReader> reader;
 	std::shared_ptr<arrow::RecordBatch> current_batch;
 	idx_t batch_offset = 0;
@@ -149,11 +151,8 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 	{
 		lock_guard<mutex> parallel_lock(lock);
 		if (!used_main_thread) {
-			if (bind_data.can_use_main_thread) {
-				// Reuse main connection
-				// Note: FlightSqlClient might need cloning if not thread-safe or for separate streams
-				// For now, let's create a new connection to be safe as FlightSqlClient holds state
-				lstate.connection = AltertableConnection::Open(bind_data.dsn);
+			if (attached_catalog) {
+				lstate.connection = AltertableConnection(GetConnection().GetSharedConnection());
 			} else {
 				lstate.connection = AltertableConnection::Open(bind_data.dsn);
 			}
@@ -162,12 +161,7 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 		}
 	}
 
-	if (attached_catalog) {
-		// Pool not fully adapted for Flight yet
-		lstate.connection = AltertableConnection::Open(bind_data.dsn);
-	} else {
-		lstate.connection = AltertableConnection::Open(bind_data.dsn);
-	}
+	lstate.connection = AltertableConnection::Open(bind_data.dsn);
 	return true;
 }
 
@@ -336,8 +330,14 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		}
 	}
 
-	// Execute query to get stream reader from Altertable
-	local_state->reader = local_state->connection.QueryStream(query);
+	// Execute query to get all Flight endpoints. FlightInfo may describe
+	// multiple streams, and Flight requires clients to consume every endpoint.
+	local_state->flight_info = local_state->connection.Execute(query);
+	if (local_state->flight_info->endpoints().empty()) {
+		throw IOException("No endpoints returned for query");
+	}
+	local_state->reader =
+	    local_state->connection.QueryEndpointStream(local_state->flight_info->endpoints()[local_state->endpoint_idx]);
 
 	return std::move(local_state);
 }
@@ -364,10 +364,15 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		auto chunk = chunk_result.ValueOrDie();
 
 		if (!chunk.data) {
-			done = true;
+			endpoint_idx++;
 			current_batch.reset();
 			batch_offset = 0;
-			return;
+			if (!flight_info || endpoint_idx >= flight_info->endpoints().size()) {
+				done = true;
+				return;
+			}
+			reader = connection.QueryEndpointStream(flight_info->endpoints()[endpoint_idx]);
+			continue;
 		}
 		current_batch = chunk.data;
 		batch_offset = 0;

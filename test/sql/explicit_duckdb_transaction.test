@@ -41,4 +41,28 @@ statement ok
 CALL altertable_execute('txdb', 'DROP TABLE __explicit_tx_tbl')
 
 statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __attached_tx_visibility')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __attached_tx_visibility (n INTEGER)')
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO txdb.main.__attached_tx_visibility VALUES (123)
+
+# Attached scans must use the same remote transaction connection as attached writes.
+query I
+SELECT n FROM txdb.main.__attached_tx_visibility ORDER BY n
+----
+123
+
+statement ok
+COMMIT
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __attached_tx_visibility')
+
+statement ok
 DETACH txdb

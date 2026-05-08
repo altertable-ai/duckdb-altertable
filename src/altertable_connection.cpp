@@ -6,6 +6,7 @@
 
 #include "arrow/flight/sql/client.h"
 #include "arrow/ipc/dictionary.h"
+#include "arrow/table.h"
 
 namespace duckdb {
 
@@ -144,12 +145,16 @@ int64_t AltertableConnection::ExecuteUpdate(const string &query) {
 std::unique_ptr<arrow::flight::FlightStreamReader> AltertableConnection::QueryStream(const string &query) {
 	auto info = Execute(query);
 
-	// For now we just read the first endpoint
 	if (info->endpoints().empty()) {
 		throw IOException("No endpoints returned for query");
 	}
 
-	auto result = GetClient()->DoGet(GetCallOptions(), info->endpoints()[0].ticket);
+	return QueryEndpointStream(info->endpoints()[0]);
+}
+
+std::unique_ptr<arrow::flight::FlightStreamReader>
+AltertableConnection::QueryEndpointStream(const arrow::flight::FlightEndpoint &endpoint) {
+	auto result = GetClient()->DoGet(GetCallOptions(), endpoint.ticket);
 	if (!result.ok()) {
 		throw IOException("Failed to get stream: " + result.status().ToString());
 	}
@@ -187,23 +192,27 @@ vector<unique_ptr<AltertableResult>> AltertableConnection::ExecuteQueries(const 
 unique_ptr<AltertableResult> AltertableConnection::Query(const string &query) {
 	auto info = Execute(query);
 
-	// For DDL/DML statements and SELECT queries, we need to fetch the results
 	if (info->endpoints().empty()) {
 		return make_uniq<AltertableResult>();
 	}
 
-	auto stream_result = GetClient()->DoGet(GetCallOptions(), info->endpoints()[0].ticket);
-	if (!stream_result.ok()) {
-		throw IOException("Failed to get stream: " + stream_result.status().ToString());
+	vector<std::shared_ptr<arrow::Table>> tables;
+	for (auto &endpoint : info->endpoints()) {
+		auto stream = QueryEndpointStream(endpoint);
+		auto table_result = stream->ToTable();
+		if (!table_result.ok()) {
+			throw IOException("Failed to read stream table: " + table_result.status().ToString());
+		}
+		tables.push_back(table_result.ValueOrDie());
 	}
-	auto stream = std::move(stream_result.ValueOrDie());
-
-	// Read all batches into a table
-	auto table_result = stream->ToTable();
-	if (!table_result.ok()) {
-		throw IOException("Failed to read stream table: " + table_result.status().ToString());
+	if (tables.size() == 1) {
+		return make_uniq<AltertableResult>(std::move(tables[0]));
 	}
-	return make_uniq<AltertableResult>(table_result.ValueOrDie());
+	auto concat_result = arrow::ConcatenateTables(tables);
+	if (!concat_result.ok()) {
+		throw IOException("Failed to concatenate Flight endpoint tables: " + concat_result.status().ToString());
+	}
+	return make_uniq<AltertableResult>(concat_result.ValueOrDie());
 }
 
 } // namespace duckdb

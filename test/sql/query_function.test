@@ -24,6 +24,13 @@ SELECT * FROM altertable_query('test_db', 'SELECT 1')
 ----
 1
 
+# Projection on altertable_query must be handled safely by DuckDB.
+# Regression: the scanner used to read the first Arrow column into the projected output vector.
+query T
+SELECT y FROM altertable_query('test_db', 'SELECT 1 AS x, ''two'' AS y')
+----
+two
+
 # Create a table using altertable_execute (drop first to ensure clean state)
 statement ok
 CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_table_simple')

@@ -51,7 +51,7 @@ AltertableQueryFunction::AltertableQueryFunction()
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;
 	function = scan_function.function;
-	projection_pushdown = true;
+	projection_pushdown = false;
 	global_initialization = TableFunctionInitialization::INITIALIZE_ON_SCHEDULE;
 }
 } // namespace duckdb

@@ -44,18 +44,30 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 		throw IOException("Failed to stream schemas: GetDbSchemas returned no endpoints");
 	}
 
-	auto stream_result = client->DoGet(call_options, info_result.ValueOrDie()->endpoints()[0].ticket);
-	if (!stream_result.ok()) {
-		throw IOException("Failed to stream schemas: " + stream_result.status().ToString());
-	}
+	vector<std::shared_ptr<arrow::Table>> tables;
+	for (auto &endpoint : info_result.ValueOrDie()->endpoints()) {
+		auto stream_result = client->DoGet(call_options, endpoint.ticket);
+		if (!stream_result.ok()) {
+			throw IOException("Failed to stream schemas: " + stream_result.status().ToString());
+		}
 
-	auto reader = std::move(stream_result.ValueOrDie());
-	auto table_chunk = reader->ToTable();
-	if (!table_chunk.ok()) {
-		throw IOException("Failed to read schema table: " + table_chunk.status().ToString());
+		auto reader = std::move(stream_result.ValueOrDie());
+		auto table_chunk = reader->ToTable();
+		if (!table_chunk.ok()) {
+			throw IOException("Failed to read schema table: " + table_chunk.status().ToString());
+		}
+		tables.push_back(table_chunk.ValueOrDie());
 	}
-
-	auto table = table_chunk.ValueOrDie();
+	std::shared_ptr<arrow::Table> table;
+	if (tables.size() == 1) {
+		table = std::move(tables[0]);
+	} else {
+		auto table_result = arrow::ConcatenateTables(tables);
+		if (!table_result.ok()) {
+			throw IOException("Failed to concatenate schema endpoint tables: " + table_result.status().ToString());
+		}
+		table = table_result.ValueOrDie();
+	}
 	// Expected columns: catalog_name, db_schema_name
 
 	auto schema_col = table->GetColumnByName("db_schema_name");
