@@ -35,6 +35,12 @@ CALL altertable_execute('test_db', 'CREATE TABLE test_table_simple (a INTEGER)')
 statement ok
 CALL altertable_execute('test_db', 'INSERT INTO test_table_simple VALUES (42)')
 
+# Qualify with main.* on the remote (attach name is not the Flight SQL session catalog unless catalog= is in the DSN).
+query I
+SELECT * FROM altertable_query('test_db', 'SELECT a FROM main.test_table_simple')
+----
+42
+
 # Query via direct table access (using catalog)
 query I
 SELECT * FROM test_db.main.test_table_simple

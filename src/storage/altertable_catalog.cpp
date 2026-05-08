@@ -17,20 +17,6 @@
 
 namespace duckdb {
 
-// Helper to parse dbname from connection string
-static string ExtractCatalogFromConnectionString(const string &connection_string) {
-	auto params = StringUtil::Split(connection_string, " ");
-	for (const auto &param : params) {
-		if (param.empty())
-			continue;
-		auto kv = StringUtil::Split(param, "=");
-		if (kv.size() == 2 && StringUtil::Lower(kv[0]) == "dbname") {
-			return kv[1];
-		}
-	}
-	return "";
-}
-
 AltertableCatalog::AltertableCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
                                      AccessMode access_mode, string schema_to_load)
     : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
@@ -38,8 +24,29 @@ AltertableCatalog::AltertableCatalog(AttachedDatabase &db_p, string connection_s
 	if (default_schema.empty()) {
 		default_schema = "main";
 	}
-	// Extract catalog name from connection string
-	remote_catalog = ExtractCatalogFromConnectionString(connection_string);
+	remote_catalog = AltertableCatalog::ExtractCatalogFromConnectionString(connection_string);
+}
+
+string AltertableCatalog::ExtractCatalogFromConnectionString(const string &connection_string) {
+	auto params = StringUtil::Split(connection_string, " ");
+	string catalog;
+	string legacy_catalog;
+	for (const auto &param : params) {
+		if (param.empty())
+			continue;
+		auto kv = StringUtil::Split(param, "=");
+		if (kv.size() != 2) {
+			continue;
+		}
+		auto key = StringUtil::Lower(kv[0]);
+		if (key == "catalog") {
+			catalog = kv[1];
+		}
+		if (key == "dbname" || key == "database") {
+			legacy_catalog = kv[1];
+		}
+	}
+	return catalog.empty() ? legacy_catalog : catalog;
 }
 
 string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
@@ -94,7 +101,9 @@ string AltertableCatalog::GetConnectionString(ClientContext &context, const stri
 		new_connection_info += AddConnectionOption(*kv_secret, "host");
 		new_connection_info += AddConnectionOption(*kv_secret, "port");
 		new_connection_info += AddConnectionOption(*kv_secret, "ssl");
+		new_connection_info += AddConnectionOption(*kv_secret, "catalog");
 		new_connection_info += AddConnectionOption(*kv_secret, "dbname");
+		new_connection_info += AddConnectionOption(*kv_secret, "database");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {

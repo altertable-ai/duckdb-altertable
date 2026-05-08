@@ -68,8 +68,12 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 		password = config["password"];
 	if (config.find("ssl") != config.end())
 		use_tls = config["ssl"] != "false";
-	if (config.find("dbname") != config.end())
+	if (config.find("catalog") != config.end())
+		catalog = config["catalog"];
+	else if (config.find("dbname") != config.end())
 		catalog = config["dbname"];
+	else if (config.find("database") != config.end())
+		catalog = config["database"];
 
 	arrow::Result<arrow::flight::Location> location_result;
 
@@ -106,6 +110,22 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 	}
 
 	auto sql_client = std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
+
+	if (!catalog.empty()) {
+		arrow::flight::SetSessionOptionsRequest session_request;
+		session_request.session_options.emplace("catalog", catalog);
+		auto session_result = sql_client->SetSessionOptions(call_options, session_request);
+		if (!session_result.ok()) {
+			throw IOException("Failed to set Altertable session catalog \"%s\": %s", catalog,
+			                  session_result.status().ToString());
+		}
+		auto set_result = session_result.ValueOrDie();
+		auto catalog_error = set_result.errors.find("catalog");
+		if (catalog_error != set_result.errors.end()) {
+			throw IOException("Failed to set Altertable session catalog \"%s\": %s", catalog,
+			                  arrow::flight::ToString(catalog_error->second.value));
+		}
+	}
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));
 	connection->call_options = call_options;

@@ -26,7 +26,8 @@ public:
 
 	string connection_string;
 	string attach_path;
-	string remote_catalog; // The catalog name from dbname parameter
+	//! Remote Flight SQL catalog for metadata (from catalog/dbname/database in DSN or secret only).
+	string remote_catalog;
 	AccessMode access_mode;
 
 public:
@@ -39,6 +40,7 @@ public:
 	}
 
 	static string GetConnectionString(ClientContext &context, const string &attach_path, string secret_name);
+	static string ExtractCatalogFromConnectionString(const string &connection_string);
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;
 

@@ -39,6 +39,7 @@ DETACH db;
 | `port`     | Server port                        | `443`                      |
 | `user`     | Username for authentication        | `your-altertable-user`     |
 | `password` | Password for authentication        | `your-altertable-password` |
+| `catalog`  | Remote Altertable catalog          | `analytics`                |
 | `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
 
 Default connection behavior:
@@ -46,6 +47,7 @@ Default connection behavior:
 - `host=flight.altertable.ai`
 - `port=443`
 - `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
+- set `catalog` / `dbname` / `database` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
 
 ### Secrets
 
@@ -58,6 +60,7 @@ CREATE SECRET my_altertable (
     PORT '443',
     USER 'your-user',
     PASSWORD 'your-password',
+    CATALOG 'analytics',
     SSL 'true'
 );
 

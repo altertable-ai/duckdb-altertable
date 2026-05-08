@@ -29,10 +29,12 @@ unique_ptr<BaseSecret> CreateAltertableSecretFunction(ClientContext &context, Cr
 			result->secret_map["host"] = named_param.second.ToString();
 		} else if (lower_name == "user") {
 			result->secret_map["user"] = named_param.second.ToString();
+		} else if (lower_name == "catalog") {
+			result->secret_map["catalog"] = named_param.second.ToString();
 		} else if (lower_name == "database") {
-			result->secret_map["dbname"] = named_param.second.ToString();
+			result->secret_map["catalog"] = named_param.second.ToString();
 		} else if (lower_name == "dbname") {
-			result->secret_map["dbname"] = named_param.second.ToString();
+			result->secret_map["catalog"] = named_param.second.ToString();
 		} else if (lower_name == "password") {
 			result->secret_map["password"] = named_param.second.ToString();
 		} else if (lower_name == "port") {
@@ -54,7 +56,8 @@ void SetAltertableSecretParameters(CreateSecretFunction &function) {
 	function.named_parameters["port"] = LogicalType::VARCHAR;
 	function.named_parameters["password"] = LogicalType::VARCHAR;
 	function.named_parameters["user"] = LogicalType::VARCHAR;
-	function.named_parameters["database"] = LogicalType::VARCHAR; // alias for dbname
+	function.named_parameters["catalog"] = LogicalType::VARCHAR;
+	function.named_parameters["database"] = LogicalType::VARCHAR; // legacy alias for catalog
 	function.named_parameters["dbname"] = LogicalType::VARCHAR;
 	function.named_parameters["ssl"] = LogicalType::VARCHAR;
 }
