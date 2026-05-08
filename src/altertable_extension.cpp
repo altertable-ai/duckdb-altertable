@@ -11,6 +11,8 @@
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/common/helper.hpp"
 #include "duckdb/main/database_manager.hpp"
+#include "duckdb/storage/storage_extension.hpp"
+#include "duckdb/optimizer/optimizer_extension.hpp"
 
 using namespace duckdb;
 
@@ -92,10 +94,10 @@ static void LoadInternal(ExtensionLoader &loader) {
 
 	// Register storage extension for ATTACH support
 	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
-	config.storage_extensions["altertable"] = make_uniq<AltertableStorageExtension>();
+	StorageExtension::Register(config, "altertable", make_shared_ptr<AltertableStorageExtension>());
 
 	// Register optimizer extension for LIMIT pushdown
-	config.optimizer_extensions.push_back(CreateAltertableLimitPushdownOptimizer());
+	OptimizerExtension::Register(config, CreateAltertableLimitPushdownOptimizer());
 
 	config.AddExtensionOption("altertable_debug_show_queries",
 	                          "DEBUG SETTING: print all queries sent to Altertable to stdout", LogicalType::BOOLEAN,

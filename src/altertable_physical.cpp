@@ -119,8 +119,8 @@ unique_ptr<GlobalSourceState> AltertablePhysicalInsert::GetGlobalSourceState(Cli
 	return make_uniq<GlobalSourceState>();
 }
 
-SourceResultType AltertablePhysicalInsert::GetData(ExecutionContext &context, DataChunk &chunk,
-                                                   OperatorSourceInput &input) const {
+SourceResultType AltertablePhysicalInsert::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+                                                           OperatorSourceInput &input) const {
 	auto &insert_gstate = sink_state->Cast<AltertableInsertGlobalState>();
 	if (insert_gstate.emitted_count) {
 		return SourceResultType::FINISHED;

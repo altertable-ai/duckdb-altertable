@@ -1,6 +1,7 @@
 #include "altertable_storage.hpp"
 #include "storage/altertable_catalog.hpp"
 #include "duckdb/parser/parsed_data/attach_info.hpp"
+#include "duckdb/main/settings.hpp"
 #include "storage/altertable_transaction_manager.hpp"
 
 namespace duckdb {
@@ -9,7 +10,7 @@ static unique_ptr<Catalog> AltertableAttach(optional_ptr<StorageExtensionInfo> s
                                             AttachedDatabase &db, const string &name, AttachInfo &info,
                                             AttachOptions &attach_options) {
 	auto &config = DBConfig::GetConfig(context);
-	if (!config.options.enable_external_access) {
+	if (!Settings::Get<EnableExternalAccessSetting>(config)) {
 		throw PermissionException("Attaching Altertable databases is disabled through configuration");
 	}
 	string attach_path = info.path;

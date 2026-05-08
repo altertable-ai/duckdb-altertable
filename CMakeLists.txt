@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.20)
 set(TARGET_NAME altertable)
 project(${TARGET_NAME})
 
+set(CMAKE_CXX_STANDARD "17" CACHE STRING "C++ standard to enforce")
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include_directories(src/include)
+
 # Arrow Flight SQL requires C++17
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,7 +72,16 @@ include_directories(
 add_subdirectory(src)
 
 set(PARAMETERS "-no-warnings")
+build_static_extension(${TARGET_NAME} ${ALL_OBJECT_FILES})
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES})
+
+target_include_directories(
+  ${TARGET_NAME}_extension
+  PRIVATE include src/include ${OPENSSL_INCLUDE_DIR}
+  ${ARROW_INCLUDE_DIRS}
+  ${ARROW_FLIGHT_INCLUDE_DIRS}
+  ${ARROW_FLIGHT_SQL_INCLUDE_DIRS}
+)
 
 target_include_directories(
   ${TARGET_NAME}_loadable_extension
@@ -77,7 +91,14 @@ target_include_directories(
   ${ARROW_FLIGHT_SQL_INCLUDE_DIRS}
 )
 
-target_link_libraries(${TARGET_NAME}_loadable_extension 
+target_link_libraries(${TARGET_NAME}_extension
+    ${OPENSSL_LIBRARIES}
+    ${ARROW_LIB}
+    ${ARROW_FLIGHT_LIB}
+    ${ARROW_FLIGHT_SQL_LIB}
+)
+
+target_link_libraries(${TARGET_NAME}_loadable_extension
     ${OPENSSL_LIBRARIES}
     ${ARROW_LIB}
     ${ARROW_FLIGHT_LIB}
@@ -91,7 +112,15 @@ set_target_properties(${TARGET_NAME}_loadable_extension PROPERTIES
     C_STANDARD 99
 )
 
+set_target_properties(${TARGET_NAME}_extension PROPERTIES
+    CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON
+    C_STANDARD 99
+)
+
 if(WIN32)
+  target_link_libraries(${TARGET_NAME}_extension wsock32 ws2_32
+                        wldap32 secur32 crypt32)
   target_link_libraries(${TARGET_NAME}_loadable_extension wsock32 ws2_32
                         wldap32 secur32 crypt32)
 endif()

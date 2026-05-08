@@ -796,10 +796,20 @@ static unique_ptr<NodeStatistics> AltertableScanCardinality(ClientContext &conte
 	return make_uniq<NodeStatistics>(bind_data.pages_approx * 100); // Rough estimate
 }
 
+static BindInfo AltertableScanGetBindInfo(const optional_ptr<FunctionData> bind_data_p) {
+	auto &bind_data = bind_data_p->Cast<AltertableBindData>();
+	auto table = bind_data.GetTable();
+	if (!table) {
+		return BindInfo(ScanType::EXTERNAL);
+	}
+	return BindInfo(*table);
+}
+
 AltertableScanFunction::AltertableScanFunction()
     : TableFunction("altertable_scan", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
+	get_bind_info = AltertableScanGetBindInfo;
 	projection_pushdown = true;
 	filter_pushdown = true;
 }
@@ -808,6 +818,7 @@ AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
     : TableFunction("altertable_scan_pushdown", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
+	get_bind_info = AltertableScanGetBindInfo;
 	projection_pushdown = true;
 	filter_pushdown = true;
 }
