@@ -1,4 +1,4 @@
-Checks: "-*,clang-diagnostic-*"
+Checks: "-*,clang-diagnostic-*,misc-unused-using-decls"
 WarningsAsErrors: "*"
 HeaderFilterRegex: "src/include/.*"
 FormatStyle: none

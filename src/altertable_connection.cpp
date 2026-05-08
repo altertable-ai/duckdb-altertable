@@ -1,9 +1,11 @@
 #include "altertable_connection.hpp"
 #include "altertable_result.hpp"
+#include "altertable_utils.hpp"
 #include "duckdb/common/string_util.hpp"
 #include "duckdb/common/exception.hpp"
 
 #include "arrow/flight/sql/client.h"
+#include "arrow/ipc/dictionary.h"
 
 namespace duckdb {
 
@@ -28,59 +30,15 @@ AltertableConnection &AltertableConnection::operator=(AltertableConnection &&oth
 	return *this;
 }
 
-// Simple DSN parser - looks for key=value pairs
-static std::unordered_map<string, string> ParseDSN(const string &dsn) {
-	std::unordered_map<string, string> config;
-	auto params = StringUtil::Split(dsn, " ");
-	for (const auto &param : params) {
-		if (param.empty())
-			continue;
-		auto kv = StringUtil::Split(param, "=");
-		if (kv.size() == 2) {
-			config[StringUtil::Lower(kv[0])] = kv[1];
-		}
-	}
-	return config;
-}
-
 AltertableConnection AltertableConnection::Open(const string &dsn) {
-	auto config = ParseDSN(dsn);
-
-	string host = "flight.altertable.ai";
-	int port = 443;
-	string user = "";
-	string password = "";
-	string catalog = "";
-	bool use_tls = true;
-
-	if (config.find("host") != config.end())
-		host = config["host"];
-	if (config.find("port") != config.end()) {
-		try {
-			port = std::stoi(config["port"]);
-		} catch (const std::exception &) {
-			throw InvalidInputException("Invalid ALTERTABLE port value '%s'", config["port"]);
-		}
-	}
-	if (config.find("user") != config.end())
-		user = config["user"];
-	if (config.find("password") != config.end())
-		password = config["password"];
-	if (config.find("ssl") != config.end())
-		use_tls = config["ssl"] != "false";
-	if (config.find("catalog") != config.end())
-		catalog = config["catalog"];
-	else if (config.find("dbname") != config.end())
-		catalog = config["dbname"];
-	else if (config.find("database") != config.end())
-		catalog = config["database"];
+	auto config = AltertableConnectionConfig::Parse(dsn);
 
 	arrow::Result<arrow::flight::Location> location_result;
 
-	if (use_tls) {
-		location_result = arrow::flight::Location::ForGrpcTls(host, port);
+	if (config.ssl) {
+		location_result = arrow::flight::Location::ForGrpcTls(config.host, config.port);
 	} else {
-		location_result = arrow::flight::Location::ForGrpcTcp(host, port);
+		location_result = arrow::flight::Location::ForGrpcTcp(config.host, config.port);
 	}
 
 	if (!location_result.ok()) {
@@ -99,8 +57,8 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 
 	// Authentication setup
 	arrow::flight::FlightCallOptions call_options;
-	if (!user.empty() && !password.empty()) {
-		auto auth_result = flight_client->AuthenticateBasicToken({}, user, password);
+	if (!config.user.empty() && !config.password.empty()) {
+		auto auth_result = flight_client->AuthenticateBasicToken({}, config.user, config.password);
 		if (!auth_result.ok()) {
 			throw IOException("Authentication failed: " + auth_result.status().ToString());
 		}
@@ -111,25 +69,25 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 
 	auto sql_client = std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
 
-	if (!catalog.empty()) {
+	if (!config.catalog.empty()) {
 		arrow::flight::SetSessionOptionsRequest session_request;
-		session_request.session_options.emplace("catalog", catalog);
+		session_request.session_options.emplace("catalog", config.catalog);
 		auto session_result = sql_client->SetSessionOptions(call_options, session_request);
 		if (!session_result.ok()) {
-			throw IOException("Failed to set Altertable session catalog \"%s\": %s", catalog,
+			throw IOException("Failed to set Altertable session catalog \"%s\": %s", config.catalog,
 			                  session_result.status().ToString());
 		}
 		auto set_result = session_result.ValueOrDie();
 		auto catalog_error = set_result.errors.find("catalog");
 		if (catalog_error != set_result.errors.end()) {
-			throw IOException("Failed to set Altertable session catalog \"%s\": %s", catalog,
+			throw IOException("Failed to set Altertable session catalog \"%s\": %s", config.catalog,
 			                  arrow::flight::ToString(catalog_error->second.value));
 		}
 	}
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));
 	connection->call_options = call_options;
-	connection->catalog = catalog;
+	connection->catalog = config.catalog;
 
 	AltertableConnection result;
 	result.connection = std::move(connection);
@@ -147,6 +105,40 @@ std::unique_ptr<arrow::flight::FlightInfo> AltertableConnection::Execute(const s
 		throw IOException("Failed to execute query: " + result.status().ToString());
 	}
 	return std::move(result.ValueOrDie());
+}
+
+std::shared_ptr<arrow::Schema> AltertableConnection::GetExecuteSchema(const string &query) {
+	if (DebugPrintQueries()) {
+		Printer::Print(query + "\n");
+	}
+
+	auto result = GetClient()->GetExecuteSchema(GetCallOptions(), query);
+	arrow::ipc::DictionaryMemo memo;
+	if (!result.ok()) {
+		auto info = Execute(query);
+		auto schema_result = info->GetSchema(&memo);
+		if (!schema_result.ok()) {
+			throw IOException("Failed to get query schema: " + result.status().ToString());
+		}
+		return schema_result.ValueOrDie();
+	}
+	auto schema_result = result.ValueOrDie()->GetSchema(&memo);
+	if (!schema_result.ok()) {
+		throw IOException("Failed to deserialize query schema: " + schema_result.status().ToString());
+	}
+	return schema_result.ValueOrDie();
+}
+
+int64_t AltertableConnection::ExecuteUpdate(const string &query) {
+	if (DebugPrintQueries()) {
+		Printer::Print(query + "\n");
+	}
+
+	auto result = GetClient()->ExecuteUpdate(GetCallOptions(), query);
+	if (!result.ok()) {
+		throw IOException("Failed to execute update: " + result.status().ToString());
+	}
+	return result.ValueOrDie();
 }
 
 std::unique_ptr<arrow::flight::FlightStreamReader> AltertableConnection::QueryStream(const string &query) {

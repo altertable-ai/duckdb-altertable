@@ -47,6 +47,8 @@ public:
 
 	// Execute a query and return the flight info (metadata)
 	std::unique_ptr<arrow::flight::FlightInfo> Execute(const string &query);
+	std::shared_ptr<arrow::Schema> GetExecuteSchema(const string &query);
+	int64_t ExecuteUpdate(const string &query);
 
 	// Execute a query and return a reader for the results
 	std::unique_ptr<arrow::flight::FlightStreamReader> QueryStream(const string &query);

@@ -93,6 +93,16 @@ unique_ptr<AltertableResult> AltertableTransaction::Query(const string &query) {
 	return con.Query(query);
 }
 
+int64_t AltertableTransaction::ExecuteUpdate(const string &query) {
+	auto &con = GetConnectionRaw();
+	if (transaction_state == AltertableTransactionState::TRANSACTION_NOT_YET_STARTED) {
+		transaction_state = AltertableTransactionState::TRANSACTION_STARTED;
+		string transaction_start = GetBeginTransactionQuery();
+		con.Execute(transaction_start);
+	}
+	return con.ExecuteUpdate(query);
+}
+
 unique_ptr<AltertableResult> AltertableTransaction::QueryWithoutTransaction(const string &query) {
 	auto &con = GetConnectionRaw();
 	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {

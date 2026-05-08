@@ -61,7 +61,23 @@ optional_ptr<CatalogEntry> AltertableCatalogSet::ReloadEntry(AltertableTransacti
 
 void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInfo &info) {
 	string drop_query = "DROP ";
-	drop_query += CatalogTypeToString(info.type) + " ";
+	switch (info.type) {
+	case CatalogType::SCHEMA_ENTRY:
+		drop_query += "SCHEMA ";
+		break;
+	case CatalogType::TABLE_ENTRY:
+		drop_query += "TABLE ";
+		break;
+	case CatalogType::VIEW_ENTRY:
+		drop_query += "VIEW ";
+		break;
+	case CatalogType::INDEX_ENTRY:
+		drop_query += "INDEX ";
+		break;
+	default:
+		drop_query += CatalogTypeToString(info.type) + " ";
+		break;
+	}
 	if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
 		drop_query += " IF EXISTS ";
 	}
@@ -72,7 +88,7 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 	if (info.cascade) {
 		drop_query += " CASCADE";
 	}
-	transaction.Query(drop_query);
+	transaction.ExecuteUpdate(drop_query);
 
 	// erase the entry from the catalog set
 	lock_guard<mutex> l(entry_lock);

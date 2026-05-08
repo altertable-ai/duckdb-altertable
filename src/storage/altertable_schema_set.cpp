@@ -15,6 +15,7 @@
 #include "arrow/table.h"
 #include "arrow/array.h"
 #include "storage/altertable_catalog.hpp"
+#include "altertable_utils.hpp"
 #include "duckdb/common/shared_ptr.hpp"
 #include "arrow/flight/sql/client.h"
 
@@ -79,6 +80,9 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 		}
 
 		string schema_name = schemas->GetString(i);
+		if (!schema_to_load.empty() && schema_name != schema_to_load) {
+			continue;
+		}
 
 		CreateSchemaInfo info;
 		info.schema = schema_name;
@@ -93,7 +97,14 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 
 optional_ptr<CatalogEntry> AltertableSchemaSet::CreateSchema(AltertableTransaction &transaction,
                                                              CreateSchemaInfo &info) {
-	throw NotImplementedException("CreateSchema not supported in Flight SQL yet");
+	string query = "CREATE SCHEMA ";
+	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
+		query += "IF NOT EXISTS ";
+	}
+	query += AltertableUtils::QuoteAltertableIdentifier(info.schema);
+	transaction.ExecuteUpdate(query);
+	auto schema = make_shared_ptr<AltertableSchemaEntry>(catalog, info, nullptr, nullptr);
+	return CreateEntry(transaction, std::move(schema));
 }
 
 } // namespace duckdb

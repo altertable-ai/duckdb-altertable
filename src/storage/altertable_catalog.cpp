@@ -9,11 +9,16 @@
 #include "storage/altertable_catalog.hpp"
 #include "storage/altertable_schema_entry.hpp"
 #include "storage/altertable_transaction.hpp"
+#include "altertable_utils.hpp"
+#include "altertable_physical.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/planner/operator/logical_insert.hpp"
 
 namespace duckdb {
 
@@ -28,25 +33,7 @@ AltertableCatalog::AltertableCatalog(AttachedDatabase &db_p, string connection_s
 }
 
 string AltertableCatalog::ExtractCatalogFromConnectionString(const string &connection_string) {
-	auto params = StringUtil::Split(connection_string, " ");
-	string catalog;
-	string legacy_catalog;
-	for (const auto &param : params) {
-		if (param.empty())
-			continue;
-		auto kv = StringUtil::Split(param, "=");
-		if (kv.size() != 2) {
-			continue;
-		}
-		auto key = StringUtil::Lower(kv[0]);
-		if (key == "catalog") {
-			catalog = kv[1];
-		}
-		if (key == "dbname" || key == "database") {
-			legacy_catalog = kv[1];
-		}
-	}
-	return catalog.empty() ? legacy_catalog : catalog;
+	return AltertableConnectionConfig::Parse(connection_string).catalog;
 }
 
 string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
@@ -198,26 +185,48 @@ void AltertableCatalog::ClearCache() {
 
 PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
                                                        LogicalCreateTable &op, PhysicalOperator &plan) {
-	throw NotImplementedException("CREATE TABLE AS not supported for Altertable - use altertable_execute() to create "
-	                              "tables on the remote server");
+	if (access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot create table in read-only Altertable database");
+	}
+	auto &insert = planner.Make<AltertablePhysicalInsert>(op, *this, op.schema, std::move(op.info),
+	                                                      op.estimated_cardinality);
+	insert.children.push_back(plan);
+	return insert;
 }
 
 PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException(
-	    "INSERT not supported for Altertable - use altertable_execute() to insert data on the remote server");
+	if (access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot insert into read-only Altertable database");
+	}
+	if (!plan) {
+		throw BinderException("INSERT DEFAULT VALUES is not supported for Altertable attached tables yet");
+	}
+	if (op.return_chunk) {
+		throw BinderException("INSERT ... RETURNING is not supported for Altertable attached tables yet");
+	}
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
+		throw BinderException("INSERT ON CONFLICT is not supported for Altertable attached tables yet");
+	}
+	if (!op.column_index_map.empty()) {
+		plan = planner.ResolveDefaultsProjection(op, *plan);
+	}
+	auto &insert = planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality,
+	                                                      op.return_chunk);
+	insert.children.push_back(*plan);
+	return insert;
 }
 
 PhysicalOperator &AltertableCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalDelete &op, PhysicalOperator &plan) {
-	throw NotImplementedException(
-	    "DELETE not supported for Altertable - use altertable_execute() to delete data on the remote server");
+	throw BinderException("DELETE from Altertable attached tables is not supported by DuckDB's row-id write path yet; "
+	                      "use altertable_execute() to forward a remote DELETE statement");
 }
 
 PhysicalOperator &AltertableCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalUpdate &op, PhysicalOperator &plan) {
-	throw NotImplementedException(
-	    "UPDATE not supported for Altertable - use altertable_execute() to update data on the remote server");
+	throw BinderException("UPDATE of Altertable attached tables is not supported by DuckDB's row-id write path yet; "
+	                      "use altertable_execute() to forward a remote UPDATE statement");
 }
 
 } // namespace duckdb

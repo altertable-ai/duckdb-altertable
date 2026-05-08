@@ -37,7 +37,7 @@ SELECT
     NULL AS constraint_key
 FROM information_schema.tables t
 JOIN information_schema.columns c ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-WHERE t.table_type = 'BASE TABLE' ${CONDITION}
+WHERE t.table_type IN ('BASE TABLE', 'VIEW') ${CONDITION}
 ORDER BY t.table_schema, t.table_name, c.ordinal_position;
 )";
 	string condition;
@@ -324,7 +324,7 @@ string GetAltertableCreateTable(CreateTableInfo &info) {
 optional_ptr<CatalogEntry> AltertableTableSet::CreateTable(AltertableTransaction &transaction,
                                                            BoundCreateTableInfo &info) {
 	auto create_sql = GetAltertableCreateTable(info.Base());
-	transaction.Query(create_sql);
+	transaction.ExecuteUpdate(create_sql);
 	auto tbl_entry = make_shared_ptr<AltertableTableEntry>(catalog, schema, info.Base());
 	return CreateEntry(transaction, std::move(tbl_entry));
 }
@@ -358,7 +358,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RenameTa
 	string sql = GetAlterTablePrefix(transaction, info.name);
 	sql += " RENAME TO ";
 	sql += KeywordHelper::WriteQuoted(info.new_table_name, '"');
-	transaction.Query(sql);
+	transaction.ExecuteUpdate(sql);
 }
 
 void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RenameColumnInfo &info) {
@@ -370,7 +370,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RenameCo
 	sql += " TO ";
 	sql += KeywordHelper::WriteQuoted(info.new_name, '"');
 
-	transaction.Query(sql);
+	transaction.ExecuteUpdate(sql);
 }
 
 void AltertableTableSet::AlterTable(AltertableTransaction &transaction, AddColumnInfo &info) {
@@ -382,7 +382,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, AddColum
 	sql += KeywordHelper::WriteQuoted(info.new_column.Name(), '"');
 	sql += " ";
 	sql += info.new_column.Type().ToString();
-	transaction.Query(sql);
+	transaction.ExecuteUpdate(sql);
 }
 
 void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RemoveColumnInfo &info) {
@@ -394,7 +394,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RemoveCo
 	}
 	string column_name = GetAlterTableColumnName(info.removed_column, entry);
 	sql += KeywordHelper::WriteQuoted(column_name, '"');
-	transaction.Query(sql);
+	transaction.ExecuteUpdate(sql);
 }
 
 void AltertableTableSet::AlterTable(AltertableTransaction &transaction, AlterTableInfo &alter) {

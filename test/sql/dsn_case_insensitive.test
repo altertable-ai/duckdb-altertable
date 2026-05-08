@@ -18,3 +18,8 @@ query I
 SELECT * FROM altertable_query('Host=${ALTERTABLE_TEST_HOST} Port=${ALTERTABLE_TEST_PORT} User=${ALTERTABLE_TEST_USER} Password=${ALTERTABLE_TEST_PASSWORD} Ssl=${ALTERTABLE_TEST_SSL}', 'SELECT 7 AS n')
 ----
 7
+
+query I
+SELECT * FROM altertable_query('host=''${ALTERTABLE_TEST_HOST}'' port=''${ALTERTABLE_TEST_PORT}'' user=''${ALTERTABLE_TEST_USER}'' password=''${ALTERTABLE_TEST_PASSWORD}'' ssl=''${ALTERTABLE_TEST_SSL}''', 'SELECT 8 AS n')
+----
+8

@@ -65,4 +65,6 @@ protected:
 	unique_ptr<AltertableResultSlice> table_result;
 };
 
+string GetAltertableCreateTable(CreateTableInfo &info);
+
 } // namespace duckdb

@@ -56,6 +56,28 @@ struct AltertableCopyState {
 	void Initialize(ClientContext &context);
 };
 
+struct AltertableConnectionConfig {
+	string host = "flight.altertable.ai";
+	int32_t port = 443;
+	string user;
+	string password;
+	string catalog;
+	bool ssl = true;
+
+	bool has_host = false;
+	bool has_port = false;
+	bool has_user = false;
+	bool has_password = false;
+	bool has_catalog = false;
+	bool has_ssl = false;
+
+	static AltertableConnectionConfig Parse(const string &dsn);
+	static string Redact(const string &dsn);
+
+	void Merge(const AltertableConnectionConfig &other);
+	string ToDSN(bool redact_password = false) const;
+};
+
 class AltertableUtils {
 public:
 	static LogicalType ToAltertableType(const LogicalType &input);
@@ -66,6 +88,7 @@ public:
 	static LogicalType RemoveAlias(const LogicalType &type);
 	static AltertableType CreateEmptyAltertableType(const LogicalType &type);
 	static string QuoteAltertableIdentifier(const string &text);
+	static string QuoteAltertableLiteral(const string &text);
 
 	static AltertableVersion ExtractAltertableVersion(const string &version);
 };

@@ -39,6 +39,17 @@ statement ok
 CALL altertable_execute('rw_db', 'CREATE TABLE IF NOT EXISTS __rw_execute_ok (x INTEGER)')
 
 statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS ro_db2 (TYPE ALTERTABLE, READ_ONLY true)
+
+statement error
+INSERT INTO ro_db2.main.__rw_execute_ok VALUES (1)
+----
+Cannot insert into read-only Altertable database
+
+statement ok
+DETACH ro_db2
+
+statement ok
 CALL altertable_execute('rw_db', 'DROP TABLE IF EXISTS __rw_execute_ok')
 
 statement ok

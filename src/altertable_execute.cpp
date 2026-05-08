@@ -84,7 +84,7 @@ static void AltertableExecuteFunc(ClientContext &context, TableFunctionInput &da
 
 	// Execute the statement with a fresh connection
 	auto con = AltertableConnection::Open(bind_data.dsn);
-	con.Query(bind_data.sql);
+	con.ExecuteUpdate(bind_data.sql);
 
 	output.SetCardinality(1);
 	output.SetValue(0, 0, Value::BOOLEAN(true));

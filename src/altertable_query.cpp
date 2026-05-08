@@ -31,17 +31,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 	// Open a fresh connection for schema discovery
 	auto con = AltertableConnection::Open(dsn);
 
-	// Execute the query to get schema from FlightInfo
-	auto info = con.Execute(query);
-
-	// Get Schema
-	std::shared_ptr<arrow::Schema> schema;
-	arrow::ipc::DictionaryMemo memo;
-	auto schema_result = info->GetSchema(&memo);
-	if (!schema_result.ok()) {
-		throw IOException("Failed to get schema from FlightInfo: " + schema_result.status().ToString());
-	}
-	schema = schema_result.ValueOrDie();
+	auto schema = con.GetExecuteSchema(query);
 
 	for (int i = 0; i < schema->num_fields(); i++) {
 		auto field = schema->field(i);

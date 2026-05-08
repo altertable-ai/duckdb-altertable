@@ -104,7 +104,7 @@ optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateView(CatalogTransaction 
 		}
 	}
 	auto &altertable_transaction = GetAltertableTransaction(transaction);
-	altertable_transaction.Query(GetCreateViewSQL(*this, info));
+	altertable_transaction.ExecuteUpdate(GetCreateViewSQL(*this, info));
 	return tables.ReloadEntry(altertable_transaction, info.view_name);
 }
 

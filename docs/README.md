@@ -7,6 +7,7 @@ A DuckDB extension for connecting to Altertable. Query Altertable databases dire
 - **ATTACH databases** - Connect to remote Altertable servers as attached databases
 - **Direct table access** - Query remote tables using standard SQL syntax
 - **Raw query execution** - Run arbitrary SQL queries and DDL statements on remote servers
+- **Attached writes** - Use `CREATE TABLE`, `CREATE TABLE AS`, `INSERT ... VALUES`, and `INSERT ... SELECT` against attached Altertable tables
 - **Catalog integration** - Browse schemas and tables through DuckDB's catalog
 
 ## Installation
@@ -26,6 +27,11 @@ ATTACH 'user=myuser password=mypass' AS db (TYPE ALTERTABLE);
 
 -- Query tables directly
 SELECT * FROM db.main.events;
+
+-- Create and load remote tables through the attached database
+CREATE TABLE db.main.example_events (id INTEGER, name VARCHAR);
+INSERT INTO db.main.example_events VALUES (1, 'launch');
+INSERT INTO db.main.example_events SELECT id, name FROM local_events;
 
 -- Detach when done
 DETACH db;
@@ -48,6 +54,7 @@ Default connection behavior:
 - `port=443`
 - `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
 - set `catalog` / `dbname` / `database` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
+- DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
 
 ### Secrets
 
@@ -146,6 +153,33 @@ CREATE TABLE local_customers AS SELECT * FROM read_csv('customers.csv');
 SELECT l.name, r.total_orders
 FROM local_customers l
 JOIN analytics.sales.customer_summary r ON l.id = r.customer_id;
+```
+
+### Attached DDL and Writes
+
+The attached database path supports common relation DDL and inserts:
+
+```sql
+CREATE TABLE analytics.main.new_orders (order_id INTEGER, amount DOUBLE);
+INSERT INTO analytics.main.new_orders VALUES (1, 42.50);
+INSERT INTO analytics.main.new_orders
+SELECT order_id, amount FROM local_orders;
+
+CREATE TABLE analytics.main.top_customers AS
+SELECT customer_id, SUM(amount) AS total_amount
+FROM analytics.main.new_orders
+GROUP BY customer_id;
+
+ALTER TABLE analytics.main.new_orders ADD COLUMN note VARCHAR;
+DROP TABLE analytics.main.top_customers;
+```
+
+`READ_ONLY` attachments reject attached writes and `altertable_execute`.
+Attached `UPDATE` and `DELETE` are intentionally rejected today because DuckDB's storage write path requires row identifiers that Altertable does not expose through this extension yet. Use `altertable_execute` to forward remote `UPDATE` or `DELETE` SQL explicitly:
+
+```sql
+CALL altertable_execute('analytics', 'UPDATE main.new_orders SET note = ''reviewed'' WHERE order_id = 1');
+CALL altertable_execute('analytics', 'DELETE FROM main.new_orders WHERE order_id = 1');
 ```
 
 ## Building from Source

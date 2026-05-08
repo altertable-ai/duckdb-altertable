@@ -4,6 +4,197 @@
 
 namespace duckdb {
 
+static bool NeedsDSNQuoting(const string &value) {
+	for (auto c : value) {
+		if (StringUtil::CharacterIsSpace(c) || c == '\'' || c == '"' || c == '\\' || c == '=') {
+			return true;
+		}
+	}
+	return value.empty();
+}
+
+static string QuoteDSNValue(const string &value) {
+	if (!NeedsDSNQuoting(value)) {
+		return value;
+	}
+	string result = "'";
+	for (auto c : value) {
+		if (c == '\'' || c == '\\') {
+			result += '\\';
+		}
+		result += c;
+	}
+	result += "'";
+	return result;
+}
+
+static string ReadDSNToken(const string &dsn, idx_t &pos) {
+	while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
+		pos++;
+	}
+	string result;
+	if (pos >= dsn.size()) {
+		return result;
+	}
+	if (dsn[pos] == '\'' || dsn[pos] == '"') {
+		auto quote = dsn[pos++];
+		while (pos < dsn.size()) {
+			auto c = dsn[pos++];
+			if (c == '\\' && pos < dsn.size()) {
+				result += dsn[pos++];
+				continue;
+			}
+			if (c == quote) {
+				break;
+			}
+			result += c;
+		}
+		return result;
+	}
+	while (pos < dsn.size() && !StringUtil::CharacterIsSpace(dsn[pos])) {
+		result += dsn[pos++];
+	}
+	return result;
+}
+
+static string UnquoteDSNValue(const string &value) {
+	if (value.size() < 2) {
+		return value;
+	}
+	auto quote = value[0];
+	if ((quote != '\'' && quote != '"') || value[value.size() - 1] != quote) {
+		return value;
+	}
+	string result;
+	for (idx_t i = 1; i + 1 < value.size(); i++) {
+		if (value[i] == '\\' && i + 2 < value.size()) {
+			result += value[++i];
+			continue;
+		}
+		result += value[i];
+	}
+	return result;
+}
+
+AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) {
+	AltertableConnectionConfig result;
+	idx_t pos = 0;
+	while (pos < dsn.size()) {
+		auto token = ReadDSNToken(dsn, pos);
+		if (token.empty()) {
+			continue;
+		}
+		auto equals = token.find('=');
+		if (equals == string::npos) {
+			continue;
+		}
+		auto key = StringUtil::Lower(token.substr(0, equals));
+		auto value = token.substr(equals + 1);
+		if ((value.empty() || value == "'" || value == "\"") && pos < dsn.size()) {
+			value = ReadDSNToken(dsn, pos);
+		}
+		value = UnquoteDSNValue(value);
+
+		if (key == "host") {
+			result.host = value;
+			result.has_host = true;
+		} else if (key == "port") {
+			try {
+				result.port = std::stoi(value);
+			} catch (const std::exception &) {
+				throw InvalidInputException("Invalid ALTERTABLE port value '%s'", value);
+			}
+			if (result.port <= 0 || result.port > 65535) {
+				throw InvalidInputException("Invalid ALTERTABLE port value '%s'", value);
+			}
+			result.has_port = true;
+		} else if (key == "user") {
+			result.user = value;
+			result.has_user = true;
+		} else if (key == "password") {
+			result.password = value;
+			result.has_password = true;
+		} else if (key == "ssl") {
+			auto lower_value = StringUtil::Lower(value);
+			if (lower_value == "false" || lower_value == "0" || lower_value == "no") {
+				result.ssl = false;
+			} else if (lower_value == "true" || lower_value == "1" || lower_value == "yes" || lower_value.empty()) {
+				result.ssl = true;
+			} else {
+				throw InvalidInputException("Invalid ALTERTABLE ssl value '%s'", value);
+			}
+			result.has_ssl = true;
+		} else if (key == "catalog") {
+			result.catalog = value;
+			result.has_catalog = true;
+		} else if ((key == "database" || key == "dbname") && !result.has_catalog) {
+			result.catalog = value;
+			result.has_catalog = true;
+		}
+	}
+	return result;
+}
+
+void AltertableConnectionConfig::Merge(const AltertableConnectionConfig &other) {
+	if (other.has_host) {
+		host = other.host;
+		has_host = true;
+	}
+	if (other.has_port) {
+		port = other.port;
+		has_port = true;
+	}
+	if (other.has_user) {
+		user = other.user;
+		has_user = true;
+	}
+	if (other.has_password) {
+		password = other.password;
+		has_password = true;
+	}
+	if (other.has_catalog) {
+		catalog = other.catalog;
+		has_catalog = true;
+	}
+	if (other.has_ssl) {
+		ssl = other.ssl;
+		has_ssl = true;
+	}
+}
+
+string AltertableConnectionConfig::ToDSN(bool redact_password) const {
+	string result;
+	auto append = [&](const string &key, const string &value) {
+		if (!result.empty()) {
+			result += " ";
+		}
+		result += key + "=" + QuoteDSNValue(value);
+	};
+	if (has_host || host != "flight.altertable.ai") {
+		append("host", host);
+	}
+	if (has_port || port != 443) {
+		append("port", to_string(port));
+	}
+	if (has_user || !user.empty()) {
+		append("user", user);
+	}
+	if (has_password || !password.empty()) {
+		append("password", redact_password ? "****" : password);
+	}
+	if (has_catalog || !catalog.empty()) {
+		append("catalog", catalog);
+	}
+	if (has_ssl || !ssl) {
+		append("ssl", ssl ? "true" : "false");
+	}
+	return result;
+}
+
+string AltertableConnectionConfig::Redact(const string &dsn) {
+	return Parse(dsn).ToDSN(true);
+}
+
 LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type) {
 	switch (arrow_type.id()) {
 	case arrow::Type::BOOL:
@@ -368,6 +559,10 @@ AltertableVersion AltertableUtils::ExtractAltertableVersion(const string &versio
 
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+}
+
+string AltertableUtils::QuoteAltertableLiteral(const string &text) {
+	return KeywordHelper::WriteQuoted(text, '\'');
 }
 
 } // namespace duckdb

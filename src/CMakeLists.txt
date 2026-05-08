@@ -9,6 +9,7 @@ add_library(
   altertable_execute.cpp
   altertable_extension.cpp
   altertable_optimizer.cpp
+  altertable_physical.cpp
   altertable_query.cpp
   altertable_scanner.cpp
   altertable_storage.cpp
