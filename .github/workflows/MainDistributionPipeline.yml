@@ -27,4 +27,35 @@ jobs:
       duckdb_version: v1.5.2
       ci_tools_version: v1.5.2
       extension_name: altertable
-      format_checks: 'format;tidy'
+      # clang-tidy needs vcpkg (Arrow); the reusable workflow does not set up vcpkg — see extension-tidy-check.
+      format_checks: "format"
+
+  extension-tidy-check:
+    name: Tidy Check
+    runs-on: ubuntu-24.04
+    env:
+      CC: gcc
+      CXX: g++
+      GEN: ninja
+      TIDY_THREADS: 4
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: x64-linux
+      VCPKG_OVERLAY_PORTS: ${{ github.workspace }}/extension-ci-tools/vcpkg_ports
+      VCPKG_OVERLAY_TRIPLETS: ${{ github.workspace }}/extension-ci-tools/toolchains
+      VCPKG_BINARY_SOURCES: "clear;http,https://vcpkg-cache.duckdb.org,read"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build tools
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build clang-tidy && sudo pip3 install pybind11[global] --break-system-packages
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+      - name: clang-tidy
+        run: make tidy-check
