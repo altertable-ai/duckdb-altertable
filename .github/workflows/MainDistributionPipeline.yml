@@ -19,6 +19,8 @@ jobs:
       duckdb_version: v1.5.2
       ci_tools_version: v1.5.2
       extension_name: altertable
+      # Extension relies on vcpkg deps that are not supported for WASM builds.
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads'
 
   code-quality-check:
     name: Code Quality Check
