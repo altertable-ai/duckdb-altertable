@@ -1,6 +1,7 @@
 {
   "dependencies": [
     "openssl",
+    "grpc",
     {
       "name": "arrow",
       "features": [

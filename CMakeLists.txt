@@ -56,6 +56,13 @@ else()
   set(ARROW_FLIGHT_SQL_LIB ArrowFlightSql::arrow_flight_sql_static)
 endif()
 
+# Static Arrow Flight does not always propagate gRPC through CMake; link it explicitly for static triplets.
+set(ALTERTABLE_GRPC_LIBS "")
+if(NOT EMSCRIPTEN AND NOT TARGET ArrowFlight::arrow_flight_shared)
+  find_package(gRPC CONFIG REQUIRED)
+  list(APPEND ALTERTABLE_GRPC_LIBS gRPC::grpc++ gRPC::grpc)
+endif()
+
 get_target_property(ARROW_INCLUDE_DIRS ${ARROW_LIB} INTERFACE_INCLUDE_DIRECTORIES)
 get_target_property(ARROW_FLIGHT_INCLUDE_DIRS ${ARROW_FLIGHT_LIB} INTERFACE_INCLUDE_DIRECTORIES)
 get_target_property(ARROW_FLIGHT_SQL_INCLUDE_DIRS ${ARROW_FLIGHT_SQL_LIB} INTERFACE_INCLUDE_DIRECTORIES)
@@ -96,6 +103,7 @@ target_link_libraries(${TARGET_NAME}_extension
     ${ARROW_LIB}
     ${ARROW_FLIGHT_LIB}
     ${ARROW_FLIGHT_SQL_LIB}
+    ${ALTERTABLE_GRPC_LIBS}
 )
 
 target_link_libraries(${TARGET_NAME}_loadable_extension
@@ -103,6 +111,7 @@ target_link_libraries(${TARGET_NAME}_loadable_extension
     ${ARROW_LIB}
     ${ARROW_FLIGHT_LIB}
     ${ARROW_FLIGHT_SQL_LIB}
+    ${ALTERTABLE_GRPC_LIBS}
 )
 
 # Override the C++ standard for this extension to C++17
