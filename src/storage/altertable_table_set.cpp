@@ -15,7 +15,7 @@
 namespace duckdb {
 
 AltertableTableSet::AltertableTableSet(AltertableSchemaEntry &schema, unique_ptr<AltertableResultSlice> table_result_p)
-    : AltertableInSchemaSet(schema, !table_result_p), table_result(std::move(table_result_p)) {
+    : AltertableInSchemaSet(schema, false), table_result(std::move(table_result_p)) {
 }
 
 string AltertableTableSet::GetInitializeQuery(const string &catalog, const string &schema, const string &table) {

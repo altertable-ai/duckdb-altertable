@@ -16,11 +16,13 @@
 namespace duckdb {
 
 struct AltertableExecuteBindData : public FunctionData {
+	string db_name;
 	string dsn;
 	string sql;
 
 	unique_ptr<FunctionData> Copy() const override {
 		auto result = make_uniq<AltertableExecuteBindData>();
+		result->db_name = db_name;
 		result->dsn = dsn;
 		result->sql = sql;
 		return std::move(result);
@@ -28,7 +30,7 @@ struct AltertableExecuteBindData : public FunctionData {
 
 	bool Equals(const FunctionData &other_p) const override {
 		auto &other = other_p.Cast<AltertableExecuteBindData>();
-		return dsn == other.dsn && sql == other.sql;
+		return db_name == other.db_name && dsn == other.dsn && sql == other.sql;
 	}
 };
 
@@ -41,6 +43,7 @@ static unique_ptr<FunctionData> AltertableExecuteBind(ClientContext &context, Ta
 	auto result = make_uniq<AltertableExecuteBindData>();
 
 	auto db_name = input.inputs[0].GetValue<string>();
+	result->db_name = db_name;
 	result->sql = input.inputs[1].GetValue<string>();
 
 	// Check if db_name is an attached database
@@ -85,6 +88,11 @@ static void AltertableExecuteFunc(ClientContext &context, TableFunctionInput &da
 	// Execute the statement with a fresh connection
 	auto con = AltertableConnection::Open(bind_data.dsn);
 	con.ExecuteUpdate(bind_data.sql);
+	auto &db_manager = DatabaseManager::Get(context);
+	auto db = db_manager.GetDatabase(context, bind_data.db_name);
+	if (db && db->GetCatalog().GetCatalogType() == "altertable") {
+		db->GetCatalog().Cast<AltertableCatalog>().ClearCache();
+	}
 
 	output.SetCardinality(1);
 	output.SetValue(0, 0, Value::BOOLEAN(true));
