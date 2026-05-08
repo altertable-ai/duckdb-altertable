@@ -12,8 +12,7 @@ public:
 	bool emitted_count = false;
 };
 
-class AltertableInsertLocalState : public LocalSinkState {
-};
+class AltertableInsertLocalState : public LocalSinkState {};
 
 AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, vector<LogicalType> types,
                                                    AltertableCatalog &catalog_p, TableCatalogEntry &table_p,
@@ -27,8 +26,7 @@ AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, 
 
 AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, LogicalOperator &op,
                                                    AltertableCatalog &catalog_p, SchemaCatalogEntry &schema_p,
-                                                   unique_ptr<BoundCreateTableInfo> info,
-                                                   idx_t estimated_cardinality)
+                                                   unique_ptr<BoundCreateTableInfo> info, idx_t estimated_cardinality)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::INSERT, op.types, estimated_cardinality),
       catalog(catalog_p), schema(schema_p), create_info(std::move(info)), return_chunk(false) {
 	for (auto &column : create_info->Base().columns.Logical()) {

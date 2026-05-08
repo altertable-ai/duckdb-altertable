@@ -188,8 +188,8 @@ PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, P
 	if (access_mode == AccessMode::READ_ONLY) {
 		throw BinderException("Cannot create table in read-only Altertable database");
 	}
-	auto &insert = planner.Make<AltertablePhysicalInsert>(op, *this, op.schema, std::move(op.info),
-	                                                      op.estimated_cardinality);
+	auto &insert =
+	    planner.Make<AltertablePhysicalInsert>(op, *this, op.schema, std::move(op.info), op.estimated_cardinality);
 	insert.children.push_back(plan);
 	return insert;
 }
@@ -211,8 +211,8 @@ PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, Physical
 	if (!op.column_index_map.empty()) {
 		plan = planner.ResolveDefaultsProjection(op, *plan);
 	}
-	auto &insert = planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality,
-	                                                      op.return_chunk);
+	auto &insert =
+	    planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality, op.return_chunk);
 	insert.children.push_back(*plan);
 	return insert;
 }
