@@ -7,10 +7,16 @@ EXT_CONFIG=${PROJ_DIR}extension_config.cmake
 # Include the Makefile from extension-ci-tools
 include extension-ci-tools/makefiles/duckdb_extension.Makefile
 
-# GCC 14 emits a spurious duplicate-definition error for the constexpr static
-# duckdb::BufferedFileWriter::DEFAULT_OPEN_FLAGS when linking plan_serializer
-# against libduckdb_static.a. Allow the linker to merge the duplicate.
+# GCC / GNU ld (Linux, MinGW, Rtools): duplicate-definition for the constexpr
+# static duckdb::BufferedFileWriter::DEFAULT_OPEN_FLAGS when linking
+# plan_serializer against libduckdb_static.a. Allow the linker to merge them.
 ifeq ($(shell uname -s),Linux)
+EXT_FLAGS += '-DDUCKDB_EXTRA_LINK_FLAGS=-Wl,--allow-multiple-definition'
+endif
+ifeq ($(DUCKDB_PLATFORM),windows_amd64_mingw)
+EXT_FLAGS += '-DDUCKDB_EXTRA_LINK_FLAGS=-Wl,--allow-multiple-definition'
+endif
+ifeq ($(DUCKDB_PLATFORM),windows_amd64_rtools)
 EXT_FLAGS += '-DDUCKDB_EXTRA_LINK_FLAGS=-Wl,--allow-multiple-definition'
 endif
 
