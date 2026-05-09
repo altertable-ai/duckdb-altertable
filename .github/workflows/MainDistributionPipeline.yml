@@ -19,6 +19,8 @@ jobs:
       duckdb_version: v1.5.2
       ci_tools_version: v1.5.2
       extension_name: altertable
+      # Arrow Flight pulls in Thrift; vcpkg's thrift port needs bison > 2.5 (brew on macOS, yum in Linux images).
+      extra_toolchains: 'parser_tools'
       # Extension relies on vcpkg deps that are not supported for WASM builds.
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads'
 

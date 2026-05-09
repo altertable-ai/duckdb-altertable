@@ -78,6 +78,21 @@ include_directories(
 
 add_subdirectory(src)
 
+# Sources live in OBJECT libraries; they compile Arrow headers before the final
+# link. Linking Arrow::* here propagates INTERFACE_COMPILE_DEFINITIONS (notably
+# ARROW_STATIC on MSVC + vcpkg static triplets). Without that, headers use
+# dllimport while static arrow.lib provides plain symbols -> LNK2019 __imp_*.
+foreach(_altertable_objlib altertable_ext_storage altertable_ext_library)
+  target_link_libraries(
+    ${_altertable_objlib}
+    PUBLIC ${ARROW_LIB} ${ARROW_FLIGHT_LIB} ${ARROW_FLIGHT_SQL_LIB})
+endforeach()
+if(ALTERTABLE_GRPC_LIBS)
+  foreach(_altertable_objlib altertable_ext_storage altertable_ext_library)
+    target_link_libraries(${_altertable_objlib} PUBLIC ${ALTERTABLE_GRPC_LIBS})
+  endforeach()
+endif()
+
 set(PARAMETERS "-no-warnings")
 build_static_extension(${TARGET_NAME} ${ALL_OBJECT_FILES})
 build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES})
