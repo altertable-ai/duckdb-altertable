@@ -23,7 +23,7 @@ LOAD altertable;
 
 ```sql
 -- Attach an Altertable database
-ATTACH 'user=myuser password=mypass' AS db (TYPE ALTERTABLE);
+ATTACH 'user=my-user password=my-pass catalog=my-altertable-catalog' AS db (TYPE ALTERTABLE);
 
 -- Query tables directly
 SELECT * FROM db.main.events;
@@ -41,19 +41,16 @@ DETACH db;
 
 | Parameter  | Description                        | Example                    |
 | ---------- | ---------------------------------- | -------------------------- |
-| `host`     | Server hostname or IP address      | `flight.altertable.ai`     |
-| `port`     | Server port                        | `443`                      |
 | `user`     | Username for authentication        | `your-altertable-user`     |
 | `password` | Password for authentication        | `your-altertable-password` |
 | `catalog`  | Remote Altertable catalog          | `analytics`                |
+| `host`     | Server hostname or IP address      | `flight.altertable.ai`     |
+| `port`     | Server port                        | `443`                      |
 | `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
 
 Default connection behavior:
 
-- `host=flight.altertable.ai`
-- `port=443`
-- `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
-- set `catalog` / `dbname` / `database` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
+- set `catalog` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
 - DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
 
 ### Secrets
@@ -63,12 +60,9 @@ Use DuckDB secrets so credentials are not repeated in SQL statements:
 ```sql
 CREATE SECRET my_altertable (
     TYPE altertable,
-    HOST 'flight.altertable.ai',
-    PORT '443',
     USER 'your-user',
     PASSWORD 'your-password',
-    CATALOG 'analytics',
-    SSL 'true'
+    CATALOG 'your-altertable-catalog'
 );
 
 ATTACH '' AS analytics (TYPE altertable, SECRET my_altertable);
@@ -100,30 +94,6 @@ CALL altertable_execute('db', 'INSERT INTO my_table VALUES (1, ''Alice'')');
 CALL altertable_execute('db', 'DROP TABLE IF EXISTS my_table');
 ```
 
-### `altertable_scan(connection_string, schema, table)`
-
-Scan a remote table directly without attaching a database.
-
-```sql
-SELECT * FROM altertable_scan(
-    'user=u password=p',
-    'main',
-    'my_table'
-);
-```
-
-### `altertable_scan_pushdown(connection_string, schema, table)`
-
-Same implementation as `altertable_scan` (predicate and projection pushdown are enabled for both). Use whichever name you prefer; there is no behavioral difference today.
-
-```sql
-SELECT * FROM altertable_scan_pushdown(
-    'host=server.com port=443 user=u password=p ssl=true',
-    'public',
-    'my_table'
-) WHERE id > 100;
-```
-
 ## Usage Examples
 
 ### Full Workflow Example
@@ -133,7 +103,7 @@ SELECT * FROM altertable_scan_pushdown(
 LOAD altertable;
 
 -- Connect to a remote Arrow Flight SQL server
-ATTACH 'user=acme password=secret ssl=true' AS analytics (TYPE ALTERTABLE);
+ATTACH 'user=acme password=secret catalog=analytics' AS analytics (TYPE ALTERTABLE);
 
 -- Explore available tables
 SELECT * FROM analytics.information_schema.tables;
