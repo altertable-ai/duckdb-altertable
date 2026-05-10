@@ -1,0 +1,57 @@
+# name: test/sql/duckdb_native_types.test
+# description: DuckDB-native types (TINYINT, HUGEINT, UBIGINT, BLOB) are preserved through the
+#              attached CREATE TABLE path and round-trip correctly via Arrow
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS native_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('native_db', 'DROP TABLE IF EXISTS __native_types')
+
+# CREATE TABLE via attached path — exercises ToAltertableType.
+# Previously: TINYINT→SMALLINT, UBIGINT→DECIMAL(20,0), HUGEINT→DOUBLE (lossy).
+statement ok
+CREATE TABLE native_db.main.__native_types (
+    t   TINYINT,
+    hi  HUGEINT,
+    ub  UBIGINT,
+    b   BLOB
+)
+
+# Column types must be preserved exactly as created, not silently downgraded.
+query TT
+SELECT column_name, column_type FROM (DESCRIBE native_db.main.__native_types) ORDER BY column_name
+----
+b	BLOB
+hi	HUGEINT
+t	TINYINT
+ub	UBIGINT
+
+# HUGEINT precision: 2^53+1 cannot be represented as DOUBLE (rounds to 2^53).
+# If the remote stored DOUBLE instead of HUGEINT this round-trip would lose the last bit.
+statement ok
+INSERT INTO native_db.main.__native_types VALUES (127, 9007199254740993, 18446744073709551615, '\xDE\xAD\xBE\xEF')
+
+query IIIT
+SELECT t, hi, ub, b FROM native_db.main.__native_types
+----
+127	9007199254740993	18446744073709551615	\xDE\xAD\xBE\xEF
+
+statement ok
+CALL altertable_execute('native_db', 'DROP TABLE __native_types')
+
+statement ok
+DETACH native_db

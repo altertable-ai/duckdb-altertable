@@ -49,10 +49,6 @@ protected:
 
 	static void AddColumn(optional_ptr<AltertableTransaction> transaction, optional_ptr<AltertableSchemaEntry> schema,
 	                      AltertableResult &result, idx_t row, AltertableTableInfo &table_info);
-	static void AddConstraint(AltertableResult &result, idx_t row, AltertableTableInfo &table_info);
-	static void AddColumnOrConstraint(optional_ptr<AltertableTransaction> transaction,
-	                                  optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result, idx_t row,
-	                                  AltertableTableInfo &table_info);
 
 	void CreateEntries(AltertableTransaction &transaction, AltertableResult &result, idx_t start, idx_t end);
 

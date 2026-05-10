@@ -260,7 +260,7 @@ string AltertableUtils::TypeToString(const LogicalType &input) {
 	case LogicalTypeId::DOUBLE:
 		return "DOUBLE";
 	case LogicalTypeId::BLOB:
-		return "BYTEA";
+		return "BLOB";
 	case LogicalTypeId::LIST:
 		return AltertableUtils::TypeToString(ListType::GetChildType(input)) + "[]";
 	case LogicalTypeId::ENUM:
@@ -304,21 +304,18 @@ LogicalType AltertableUtils::RemoveAlias(const LogicalType &type) {
 LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransaction> transaction,
                                                optional_ptr<AltertableSchemaEntry> schema,
                                                const AltertableTypeData &type_info, AltertableType &altertable_type) {
-	auto &pgtypename = type_info.type_name;
+	auto &type_name = type_info.type_name;
+	auto type_upper = StringUtil::Upper(type_name);
 
-	// Convert type name to uppercase for case-insensitive comparison
-	auto type_upper = StringUtil::Upper(pgtypename);
-
-	// DuckDB type names (from information_schema)
-	if (type_upper == "BOOLEAN" || pgtypename == "bool") {
+	if (type_upper == "BOOLEAN") {
 		return LogicalType::BOOLEAN;
-	} else if (type_upper == "TINYINT" || pgtypename == "int1") {
+	} else if (type_upper == "TINYINT") {
 		return LogicalType::TINYINT;
-	} else if (type_upper == "SMALLINT" || pgtypename == "int2") {
+	} else if (type_upper == "SMALLINT") {
 		return LogicalType::SMALLINT;
-	} else if (type_upper == "INTEGER" || pgtypename == "int4" || type_upper == "INT") {
+	} else if (type_upper == "INTEGER" || type_upper == "INT") {
 		return LogicalType::INTEGER;
-	} else if (type_upper == "BIGINT" || pgtypename == "int8") {
+	} else if (type_upper == "BIGINT") {
 		return LogicalType::BIGINT;
 	} else if (type_upper == "HUGEINT") {
 		return LogicalType::HUGEINT;
@@ -326,43 +323,38 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 		return LogicalType::UTINYINT;
 	} else if (type_upper == "USMALLINT") {
 		return LogicalType::USMALLINT;
-	} else if (type_upper == "UINTEGER" || pgtypename == "oid") {
+	} else if (type_upper == "UINTEGER") {
 		return LogicalType::UINTEGER;
 	} else if (type_upper == "UBIGINT") {
 		return LogicalType::UBIGINT;
-	} else if (type_upper == "FLOAT" || type_upper == "REAL" || pgtypename == "float4") {
+	} else if (type_upper == "FLOAT" || type_upper == "REAL") {
 		return LogicalType::FLOAT;
-	} else if (type_upper == "DOUBLE" || pgtypename == "float8") {
+	} else if (type_upper == "DOUBLE") {
 		return LogicalType::DOUBLE;
-	} else if (pgtypename == "numeric") {
-		auto width = ((type_info.type_modifier - sizeof(int32_t)) >> 16) & 0xffff;
-		auto scale = (((type_info.type_modifier - sizeof(int32_t)) & 0x7ff) ^ 1024) - 1024;
-		if (type_info.type_modifier == -1 || width < 0 || scale < 0 || width > 38) {
-			altertable_type.info = AltertableTypeAnnotation::NUMERIC_AS_DOUBLE;
-			return LogicalType::DOUBLE;
+	} else if (StringUtil::StartsWith(type_upper, "DECIMAL")) {
+		if (type_info.numeric_precision > 0) {
+			return LogicalType::DECIMAL(type_info.numeric_precision, type_info.numeric_scale);
 		}
-		return LogicalType::DECIMAL(width, scale);
-	} else if (type_upper == "VARCHAR" || pgtypename == "varchar" || pgtypename == "text" || pgtypename == "json" ||
-	           pgtypename == "char" || pgtypename == "bpchar" || pgtypename == "jsonb") {
+		return LogicalType::DOUBLE;
+	} else if (type_upper == "VARCHAR") {
 		return LogicalType::VARCHAR;
-	} else if (type_upper == "DATE" || pgtypename == "date") {
+	} else if (type_upper == "DATE") {
 		return LogicalType::DATE;
-	} else if (type_upper == "BLOB" || pgtypename == "bytea") {
+	} else if (type_upper == "BLOB") {
 		return LogicalType::BLOB;
-	} else if (type_upper == "TIME" || pgtypename == "time") {
+	} else if (type_upper == "TIME") {
 		return LogicalType::TIME;
-	} else if (type_upper == "TIMETZ" || type_upper == "TIME WITH TIME ZONE" || pgtypename == "timetz") {
+	} else if (type_upper == "TIMETZ" || type_upper == "TIME WITH TIME ZONE") {
 		return LogicalType::TIME_TZ;
-	} else if (type_upper == "TIMESTAMP" || pgtypename == "timestamp") {
+	} else if (type_upper == "TIMESTAMP") {
 		return LogicalType::TIMESTAMP;
-	} else if (type_upper == "TIMESTAMPTZ" || type_upper == "TIMESTAMP WITH TIME ZONE" || pgtypename == "timestamptz") {
+	} else if (type_upper == "TIMESTAMPTZ" || type_upper == "TIMESTAMP WITH TIME ZONE") {
 		return LogicalType::TIMESTAMP_TZ;
-	} else if (type_upper == "INTERVAL" || pgtypename == "interval") {
+	} else if (type_upper == "INTERVAL") {
 		return LogicalType::INTERVAL;
-	} else if (type_upper == "UUID" || pgtypename == "uuid") {
+	} else if (type_upper == "UUID") {
 		return LogicalType::UUID;
 	} else {
-		// unsupported type - fallback to varchar
 		altertable_type.info = AltertableTypeAnnotation::CAST_TO_VARCHAR;
 		return LogicalType::VARCHAR;
 	}
@@ -371,9 +363,15 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 	switch (input.id()) {
 	case LogicalTypeId::BOOLEAN:
+	case LogicalTypeId::TINYINT:
 	case LogicalTypeId::SMALLINT:
 	case LogicalTypeId::INTEGER:
 	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
 	case LogicalTypeId::FLOAT:
 	case LogicalTypeId::DOUBLE:
 	case LogicalTypeId::ENUM:
@@ -405,16 +403,6 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 	case LogicalTypeId::TIMESTAMP_MS:
 	case LogicalTypeId::TIMESTAMP_NS:
 		return LogicalType::TIMESTAMP;
-	case LogicalTypeId::TINYINT:
-		return LogicalType::SMALLINT;
-	case LogicalTypeId::UTINYINT:
-	case LogicalTypeId::USMALLINT:
-	case LogicalTypeId::UINTEGER:
-		return LogicalType::BIGINT;
-	case LogicalTypeId::UBIGINT:
-		return LogicalType::DECIMAL(20, 0);
-	case LogicalTypeId::HUGEINT:
-		return LogicalType::DOUBLE;
 	default:
 		return LogicalType::VARCHAR;
 	}

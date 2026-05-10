@@ -6,10 +6,8 @@
 #include "duckdb/parser/constraints/unique_constraint.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/catalog/dependency_list.hpp"
-#include "duckdb/parser/parsed_data/create_table_info.hpp"
 #include "duckdb/parser/constraints/list.hpp"
 #include "storage/altertable_schema_entry.hpp"
-#include "duckdb/parser/parser.hpp"
 #include "duckdb/common/string_util.hpp"
 
 namespace duckdb {
@@ -19,24 +17,19 @@ AltertableTableSet::AltertableTableSet(AltertableSchemaEntry &schema, unique_ptr
 }
 
 string AltertableTableSet::GetInitializeQuery(const string &catalog, const string &schema, const string &table) {
-	// DuckDB uses information_schema instead of pg_* tables
-	// Query information_schema.tables and information_schema.columns
 	string base_query = R"(
-SELECT 
+SELECT
     t.table_schema AS schema_name,
-    t.table_name AS table_name,
-    0 AS relpages,
-    c.column_name AS attname,
-    c.data_type AS type_name,
-    -1 AS type_modifier,
-    0 AS ndim,
+    t.table_name   AS table_name,
+    c.column_name  AS attname,
+    c.data_type    AS type_name,
+    c.numeric_precision,
+    c.numeric_scale,
     c.ordinal_position AS attnum,
-    CASE WHEN c.is_nullable = 'NO' THEN true ELSE false END AS notnull,
-    NULL AS constraint_id,
-    NULL AS constraint_type,
-    NULL AS constraint_key
+    CASE WHEN c.is_nullable = 'NO' THEN true ELSE false END AS notnull
 FROM information_schema.tables t
-JOIN information_schema.columns c ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+JOIN information_schema.columns c
+  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
 WHERE t.table_type IN ('BASE TABLE', 'VIEW') ${CONDITION}
 ORDER BY t.table_schema, t.table_name, c.ordinal_position;
 )";
@@ -58,66 +51,23 @@ void AltertableTableSet::AddColumn(optional_ptr<AltertableTransaction> transacti
                                    optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result, idx_t row,
                                    AltertableTableInfo &table_info) {
 	AltertableTypeData type_info;
-	idx_t column_index = 3;
-	auto column_name = result.GetString(row, column_index);
-	type_info.type_name = result.GetString(row, column_index + 1);
-	type_info.type_modifier = result.GetInt64(row, column_index + 2);
-	bool is_not_null = result.GetBool(row, column_index + 5);
-	string default_value;
+	auto column_name = result.GetString(row, 2);
+	type_info.type_name = result.GetString(row, 3);
+	type_info.numeric_precision = (int32_t)result.GetInt64(row, 4);
+	type_info.numeric_scale = (int32_t)result.GetInt64(row, 5);
+	bool is_not_null = result.GetBool(row, 7);
 
 	AltertableType altertable_type;
 	auto column_type = AltertableUtils::TypeToLogicalType(transaction, schema, type_info, altertable_type);
 	table_info.altertable_types.push_back(std::move(altertable_type));
 	table_info.altertable_names.push_back(column_name);
 	ColumnDefinition column(std::move(column_name), std::move(column_type));
-	if (!default_value.empty()) {
-		auto expressions = Parser::ParseExpressionList(default_value);
-		if (expressions.empty()) {
-			throw InternalException("Expression list is empty");
-		}
-		column.SetDefaultValue(std::move(expressions[0]));
-	}
 	auto &create_info = *table_info.create_info;
 	if (is_not_null) {
 		create_info.constraints.push_back(
 		    make_uniq<NotNullConstraint>(LogicalIndex(create_info.columns.PhysicalColumnCount())));
 	}
 	create_info.columns.AddColumn(std::move(column));
-}
-
-void AltertableTableSet::AddConstraint(AltertableResult &result, idx_t row, AltertableTableInfo &table_info) {
-	idx_t column_index = 9;
-	auto constraint_type = result.GetString(row, column_index + 1);
-	auto constraint_key = result.GetString(row, column_index + 2);
-	if (constraint_key.empty() || constraint_key.front() != '{' || constraint_key.back() != '}') {
-		// invalid constraint key
-		D_ASSERT(0);
-		return;
-	}
-
-	auto &create_info = *table_info.create_info;
-	auto splits = StringUtil::Split(constraint_key.substr(1, constraint_key.size() - 2), ",");
-	vector<string> columns;
-	for (auto &split : splits) {
-		auto index = std::stoull(split);
-		if (index <= 0 || index > create_info.columns.LogicalColumnCount()) {
-			return;
-		}
-		columns.push_back(create_info.columns.GetColumn(LogicalIndex(index - 1)).Name());
-	}
-
-	create_info.constraints.push_back(make_uniq<UniqueConstraint>(std::move(columns), constraint_type == "p"));
-}
-
-void AltertableTableSet::AddColumnOrConstraint(optional_ptr<AltertableTransaction> transaction,
-                                               optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result,
-                                               idx_t row, AltertableTableInfo &table_info) {
-	if (result.IsNull(row, 3)) {
-		// constraint
-		AddConstraint(result, row, table_info);
-	} else {
-		AddColumn(transaction, schema, result, row, table_info);
-	}
 }
 
 void AltertableTableSet::CreateEntries(AltertableTransaction &transaction, AltertableResult &result, idx_t start,
@@ -131,11 +81,9 @@ void AltertableTableSet::CreateEntries(AltertableTransaction &transaction, Alter
 			if (info) {
 				tables.push_back(std::move(info));
 			}
-			auto approx_num_pages = result.IsNull(row, 2) ? 0 : result.GetInt64(row, 2);
 			info = make_uniq<AltertableTableInfo>(schema, table_name);
-			info->approx_num_pages = approx_num_pages;
 		}
-		AddColumnOrConstraint(&transaction, &schema, result, row, *info);
+		AddColumn(&transaction, &schema, result, row, *info);
 	}
 	if (info) {
 		tables.push_back(std::move(info));
@@ -173,9 +121,8 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableTrans
 	}
 	auto table_info = make_uniq<AltertableTableInfo>(schema, table_name);
 	for (idx_t row = 0; row < rows; row++) {
-		AddColumnOrConstraint(&transaction, &schema, *result, row, *table_info);
+		AddColumn(&transaction, &schema, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
 	return table_info;
 }
 
@@ -189,9 +136,8 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableConne
 	}
 	auto table_info = make_uniq<AltertableTableInfo>(schema_name, table_name);
 	for (idx_t row = 0; row < rows; row++) {
-		AddColumnOrConstraint(nullptr, nullptr, *result, row, *table_info);
+		AddColumn(nullptr, nullptr, *result, row, *table_info);
 	}
-	table_info->approx_num_pages = result->GetInt64(0, 2);
 	return table_info;
 }
 

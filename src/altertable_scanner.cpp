@@ -745,21 +745,63 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::DECIMAL128: {
 			auto dec_array = std::static_pointer_cast<arrow::Decimal128Array>(arrow_col);
-			auto dec_type = std::static_pointer_cast<arrow::Decimal128Type>(arrow_col->type());
-			auto data = FlatVector::GetData<hugeint_t>(vector);
-
-			for (idx_t i = 0; i < row_count; i++) {
-				if (dec_array->IsValid(batch_offset + i)) {
-					// GetView returns raw bytes, construct Decimal128 from the pointer
-					auto view = dec_array->GetView(batch_offset + i);
-					arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
-					// Convert to hugeint_t - Arrow Decimal128 is stored as two 64-bit integers
-					auto low = static_cast<uint64_t>(decimal_value.low_bits());
-					auto high = static_cast<int64_t>(decimal_value.high_bits());
-					data[i] = hugeint_t(high, low);
-				} else {
-					FlatVector::SetNull(vector, i, true);
+			// DuckDB DECIMAL physical backing depends on precision:
+			//   1-4  → INT16,  5-9  → INT32,  10-18 → INT64,  19-38 → INT128
+			switch (vector.GetType().InternalType()) {
+			case PhysicalType::INT16: {
+				auto data = FlatVector::GetData<int16_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (dec_array->IsValid(batch_offset + i)) {
+						auto view = dec_array->GetView(batch_offset + i);
+						arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+						data[i] = static_cast<int16_t>(decimal_value.low_bits());
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
 				}
+				break;
+			}
+			case PhysicalType::INT32: {
+				auto data = FlatVector::GetData<int32_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (dec_array->IsValid(batch_offset + i)) {
+						auto view = dec_array->GetView(batch_offset + i);
+						arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+						data[i] = static_cast<int32_t>(decimal_value.low_bits());
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
+				}
+				break;
+			}
+			case PhysicalType::INT64: {
+				auto data = FlatVector::GetData<int64_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (dec_array->IsValid(batch_offset + i)) {
+						auto view = dec_array->GetView(batch_offset + i);
+						arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+						data[i] = static_cast<int64_t>(decimal_value.low_bits());
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
+				}
+				break;
+			}
+			default: { // INT128 — precision 19-38
+				auto data = FlatVector::GetData<hugeint_t>(vector);
+				for (idx_t i = 0; i < row_count; i++) {
+					if (dec_array->IsValid(batch_offset + i)) {
+						auto view = dec_array->GetView(batch_offset + i);
+						arrow::Decimal128 decimal_value(reinterpret_cast<const uint8_t *>(view.data()));
+						auto low = static_cast<uint64_t>(decimal_value.low_bits());
+						auto high = static_cast<int64_t>(decimal_value.high_bits());
+						data[i] = hugeint_t(high, low);
+					} else {
+						FlatVector::SetNull(vector, i, true);
+					}
+				}
+				break;
+			}
 			}
 			break;
 		}

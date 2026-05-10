@@ -1,0 +1,48 @@
+# name: test/sql/regress_decimal_catalog.test
+# description: DECIMAL(p,s) columns must appear as DECIMAL in the attached catalog, not VARCHAR
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS decimal_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('decimal_db', 'DROP TABLE IF EXISTS __decimal_catalog')
+
+statement ok
+CALL altertable_execute('decimal_db', 'CREATE TABLE __decimal_catalog (id INTEGER, price DECIMAL(10,2), rate DECIMAL(5,4))')
+
+# Catalog path: column types must be DECIMAL(p,s), not VARCHAR.
+# This exercises TypeToLogicalType reading numeric_precision/numeric_scale from information_schema.
+query TT
+SELECT column_name, column_type FROM (DESCRIBE decimal_db.main.__decimal_catalog) ORDER BY column_name
+----
+id	INTEGER
+price	DECIMAL(10,2)
+rate	DECIMAL(5,4)
+
+# Data must round-trip as DECIMAL, not as strings
+statement ok
+INSERT INTO decimal_db.main.__decimal_catalog VALUES (1, 9.99, 0.1234)
+
+query IRR
+SELECT id, price, rate FROM decimal_db.main.__decimal_catalog
+----
+1	9.99	0.1234
+
+statement ok
+CALL altertable_execute('decimal_db', 'DROP TABLE __decimal_catalog')
+
+statement ok
+DETACH decimal_db

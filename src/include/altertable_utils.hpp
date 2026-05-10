@@ -19,18 +19,17 @@ class AltertableTransaction;
 class AltertableTableEntry;
 
 struct AltertableTypeData {
-	int64_t type_modifier = 0;
 	string type_name;
+	int32_t numeric_precision = 0;
+	int32_t numeric_scale = 0;
 };
 
 enum class AltertableTypeAnnotation {
 	STANDARD,
 	CAST_TO_VARCHAR,
-	NUMERIC_AS_DOUBLE,
 };
 
 struct AltertableType {
-	idx_t oid = 0;
 	AltertableTypeAnnotation info = AltertableTypeAnnotation::STANDARD;
 	vector<AltertableType> children;
 };
