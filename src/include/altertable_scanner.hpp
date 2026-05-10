@@ -14,17 +14,15 @@
 
 namespace duckdb {
 class AltertableCatalog;
+class AltertableTableEntry;
 struct AltertableLocalState;
 struct AltertableGlobalState;
 class AltertableTransaction;
 
 struct AltertableBindData : public FunctionData {
-	static constexpr const idx_t DEFAULT_PAGES_PER_TASK = 1000;
-
 public:
 	explicit AltertableBindData(ClientContext &context);
 
-	AltertableVersion version;
 	string catalog_name;
 	string schema_name;
 	string table_name;
@@ -32,19 +30,12 @@ public:
 	string limit;
 	idx_t pages_approx = 0;
 
-	vector<AltertableType> altertable_types;
 	vector<string> names;
 	vector<LogicalType> types;
 
-	idx_t pages_per_task = DEFAULT_PAGES_PER_TASK;
 	string dsn;
 	string attach_path;
 
-	bool requires_materialization = true;
-	bool can_use_main_thread = true;
-	bool read_only = true;
-	bool emit_ctid = false;
-	bool use_text_protocol = false;
 	idx_t max_threads = 1;
 
 public:
@@ -75,8 +66,7 @@ class AltertableScanFunction : public TableFunction {
 public:
 	AltertableScanFunction();
 
-	static void PrepareBind(AltertableVersion version, ClientContext &context, AltertableBindData &bind,
-	                        idx_t approx_num_pages);
+	static void PrepareBind(AltertableBindData &bind, idx_t approx_num_pages);
 };
 
 //! Recognize scans from ATTACH ... (TYPE ALTERTABLE) and altertable_scan(); `function.name` is not always reliable.

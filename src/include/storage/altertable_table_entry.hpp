@@ -33,7 +33,6 @@ struct AltertableTableInfo {
 	}
 
 	unique_ptr<CreateTableInfo> create_info;
-	vector<AltertableType> altertable_types;
 	vector<string> altertable_names;
 	idx_t approx_num_pages = 0;
 };
@@ -53,9 +52,6 @@ public:
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
 
-public:
-	//! Altertable type annotations
-	vector<AltertableType> altertable_types;
 	//! Column names as they are within Altertable
 	//! We track these separately because of case sensitivity - Altertable allows e.g. the columns "ID" and "id"
 	//! together We would in this case remap them to "ID" and "id:1", while altertable_names store the original names

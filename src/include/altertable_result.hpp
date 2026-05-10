@@ -55,37 +55,6 @@ public:
 		return str_array->GetString(offset);
 	}
 
-	string_t GetStringRef(idx_t row, idx_t col) {
-		// For now, just return a string_t from the string
-		// Note: This is not truly a reference as the string is copied
-		return string_t(GetString(row, col));
-	}
-
-	int32_t GetInt32(idx_t row, idx_t col) {
-		if (!table || col >= (idx_t)table->num_columns()) {
-			return 0;
-		}
-		auto column = table->column(col);
-		if (!column || row >= (idx_t)column->length()) {
-			return 0;
-		}
-		int64_t chunk_idx = 0;
-		int64_t offset = static_cast<int64_t>(row);
-		while (chunk_idx < column->num_chunks() && offset >= column->chunk(chunk_idx)->length()) {
-			offset -= column->chunk(chunk_idx)->length();
-			chunk_idx++;
-		}
-		if (chunk_idx >= column->num_chunks()) {
-			return 0;
-		}
-		auto chunk = column->chunk(chunk_idx);
-		if (chunk->IsNull(offset)) {
-			return 0;
-		}
-		auto int_array = std::static_pointer_cast<arrow::Int32Array>(chunk);
-		return int_array->Value(offset);
-	}
-
 	int64_t GetInt64(idx_t row, idx_t col) {
 		if (!table || col >= (idx_t)table->num_columns()) {
 			return 0;
@@ -172,10 +141,6 @@ public:
 	}
 
 	idx_t Count() {
-		return row_count;
-	}
-
-	idx_t AffectedRows() {
 		return row_count;
 	}
 

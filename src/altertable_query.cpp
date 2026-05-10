@@ -7,8 +7,8 @@
 
 namespace duckdb {
 
-static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctionBindInput &input,
-                                            vector<LogicalType> &return_types, vector<string> &names) {
+static unique_ptr<FunctionData> AltertableQueryBind(ClientContext &context, TableFunctionBindInput &input,
+                                                    vector<LogicalType> &return_types, vector<string> &names) {
 	auto dsn_or_db = input.inputs[0].GetValue<string>();
 	auto query = input.inputs[1].GetValue<string>();
 	string dsn = dsn_or_db;
@@ -46,7 +46,7 @@ static unique_ptr<FunctionData> PGQueryBind(ClientContext &context, TableFunctio
 }
 
 AltertableQueryFunction::AltertableQueryFunction()
-    : TableFunction("altertable_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, PGQueryBind) {
+    : TableFunction("altertable_query", {LogicalType::VARCHAR, LogicalType::VARCHAR}, nullptr, AltertableQueryBind) {
 	AltertableScanFunction scan_function;
 	init_global = scan_function.init_global;
 	init_local = scan_function.init_local;

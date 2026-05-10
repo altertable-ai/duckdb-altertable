@@ -47,10 +47,7 @@ public:
 public:
 	bool TryGetConnection(AltertablePoolConnection &connection);
 	AltertablePoolConnection GetConnection();
-	//! Always returns a connection - even if the connection slots are exhausted
-	AltertablePoolConnection ForceGetConnection();
 	void ReturnConnection(AltertableConnection connection);
-	void SetMaximumConnections(idx_t new_max);
 
 	static void AltertableSetConnectionCache(ClientContext &context, SetScope scope, Value &parameter);
 

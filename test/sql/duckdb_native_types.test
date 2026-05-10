@@ -1,7 +1,8 @@
 # name: test/sql/duckdb_native_types.test
 # description: DuckDB-native types (TINYINT, HUGEINT, UBIGINT, BLOB) are preserved through the
-#              attached CREATE TABLE path and round-trip correctly via Arrow
 # group: [sql]
+
+#              attached CREATE TABLE path and round-trip correctly via Arrow
 
 require altertable
 

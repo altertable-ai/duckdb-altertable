@@ -58,11 +58,6 @@ AltertablePoolConnection AltertableConnectionPool::GetConnectionInternal(unique_
 	return AltertablePoolConnection(this, AltertableConnection::Open(altertable_catalog.connection_string));
 }
 
-AltertablePoolConnection AltertableConnectionPool::ForceGetConnection() {
-	unique_lock<mutex> l(connection_lock);
-	return GetConnectionInternal(l);
-}
-
 bool AltertableConnectionPool::TryGetConnection(AltertablePoolConnection &connection) {
 	unique_lock<mutex> l(connection_lock);
 	if (active_connections >= maximum_connections) {
@@ -119,21 +114,6 @@ void AltertableConnectionPool::ReturnConnection(AltertableConnection connection)
 		return;
 	}
 	connection_cache.push_back(std::move(connection));
-}
-
-void AltertableConnectionPool::SetMaximumConnections(idx_t new_max) {
-	lock_guard<mutex> l(connection_lock);
-	if (new_max < maximum_connections) {
-		// potentially close connections
-		// note that we can only close connections in the connection cache
-		// we will have to wait for connections to be returned
-		auto total_open_connections = active_connections + connection_cache.size();
-		while (!connection_cache.empty() && total_open_connections > new_max) {
-			total_open_connections--;
-			connection_cache.pop_back();
-		}
-	}
-	maximum_connections = new_max;
 }
 
 } // namespace duckdb

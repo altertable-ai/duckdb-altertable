@@ -54,16 +54,6 @@ string AltertableTransaction::GetBeginTransactionQuery() {
 	return result;
 }
 
-AltertableConnection &AltertableTransaction::GetConnectionWithoutTransaction() {
-	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
-		throw std::runtime_error("Execution without a Transaction is not possible if a Transaction already started");
-	}
-	if (access_mode == AccessMode::READ_ONLY) {
-		throw std::runtime_error("Execution without a Transaction is not possible in Read Only Mode");
-	}
-	return connection.GetConnection();
-}
-
 AltertableConnection &AltertableTransaction::GetConnection() {
 	auto &con = GetConnectionRaw();
 	if (transaction_state == AltertableTransactionState::TRANSACTION_NOT_YET_STARTED) {
@@ -103,29 +93,10 @@ int64_t AltertableTransaction::ExecuteUpdate(const string &query) {
 	return con.ExecuteUpdate(query);
 }
 
-unique_ptr<AltertableResult> AltertableTransaction::QueryWithoutTransaction(const string &query) {
-	auto &con = GetConnectionRaw();
-	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
-		throw std::runtime_error("Execution without a Transaction is not possible if a Transaction already started");
-	}
-	if (access_mode == AccessMode::READ_ONLY) {
-		throw std::runtime_error("Execution without a Transaction is not possible in Read Only Mode");
-	}
-	return con.Query(query);
-}
-
 optional_ptr<CatalogEntry> AltertableTransaction::ReferenceEntry(shared_ptr<CatalogEntry> &entry) {
 	auto &ref = *entry;
 	referenced_entries.emplace(ref, entry);
 	return ref;
-}
-
-string AltertableTransaction::GetTemporarySchema() {
-	// DuckDB uses 'temp' as the temporary schema name
-	if (temporary_schema.empty()) {
-		temporary_schema = "temp";
-	}
-	return temporary_schema;
 }
 
 AltertableTransaction &AltertableTransaction::Get(ClientContext &context, Catalog &catalog) {

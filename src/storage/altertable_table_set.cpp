@@ -47,9 +47,7 @@ ORDER BY t.table_schema, t.table_name, c.ordinal_position;
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
 
-void AltertableTableSet::AddColumn(optional_ptr<AltertableTransaction> transaction,
-                                   optional_ptr<AltertableSchemaEntry> schema, AltertableResult &result, idx_t row,
-                                   AltertableTableInfo &table_info) {
+void AltertableTableSet::AddColumn(AltertableResult &result, idx_t row, AltertableTableInfo &table_info) {
 	AltertableTypeData type_info;
 	auto column_name = result.GetString(row, 2);
 	type_info.type_name = result.GetString(row, 3);
@@ -57,9 +55,7 @@ void AltertableTableSet::AddColumn(optional_ptr<AltertableTransaction> transacti
 	type_info.numeric_scale = (int32_t)result.GetInt64(row, 5);
 	bool is_not_null = result.GetBool(row, 7);
 
-	AltertableType altertable_type;
-	auto column_type = AltertableUtils::TypeToLogicalType(transaction, schema, type_info, altertable_type);
-	table_info.altertable_types.push_back(std::move(altertable_type));
+	auto column_type = AltertableUtils::TypeToLogicalType(type_info);
 	table_info.altertable_names.push_back(column_name);
 	ColumnDefinition column(std::move(column_name), std::move(column_type));
 	auto &create_info = *table_info.create_info;
@@ -83,7 +79,7 @@ void AltertableTableSet::CreateEntries(AltertableTransaction &transaction, Alter
 			}
 			info = make_uniq<AltertableTableInfo>(schema, table_name);
 		}
-		AddColumn(&transaction, &schema, result, row, *info);
+		AddColumn(result, row, *info);
 	}
 	if (info) {
 		tables.push_back(std::move(info));
@@ -121,7 +117,7 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableTrans
 	}
 	auto table_info = make_uniq<AltertableTableInfo>(schema, table_name);
 	for (idx_t row = 0; row < rows; row++) {
-		AddColumn(&transaction, &schema, *result, row, *table_info);
+		AddColumn(*result, row, *table_info);
 	}
 	return table_info;
 }
@@ -136,7 +132,7 @@ unique_ptr<AltertableTableInfo> AltertableTableSet::GetTableInfo(AltertableConne
 	}
 	auto table_info = make_uniq<AltertableTableInfo>(schema_name, table_name);
 	for (idx_t row = 0; row < rows; row++) {
-		AddColumn(nullptr, nullptr, *result, row, *table_info);
+		AddColumn(*result, row, *table_info);
 	}
 	return table_info;
 }

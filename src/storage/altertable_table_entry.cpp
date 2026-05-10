@@ -15,16 +15,13 @@ AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry 
 		if (col.GetType().HasAlias()) {
 			col.TypeMutable() = AltertableUtils::RemoveAlias(col.GetType());
 		}
-		altertable_types.push_back(AltertableUtils::CreateEmptyAltertableType(col.GetType()));
 		altertable_names.push_back(col.GetName());
 	}
 	approx_num_pages = 0;
 }
 
 AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, AltertableTableInfo &info)
-    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_types(std::move(info.altertable_types)),
-      altertable_names(std::move(info.altertable_names)) {
-	D_ASSERT(altertable_types.size() == columns.LogicalColumnCount());
+    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_names(std::move(info.altertable_names)) {
 	approx_num_pages = info.approx_num_pages;
 }
 
@@ -53,9 +50,7 @@ TableFunction AltertableTableEntry::GetScanFunction(ClientContext &context, uniq
 		result->types.push_back(col.GetType());
 	}
 	result->names = altertable_names;
-	result->altertable_types = altertable_types;
-	result->read_only = transaction.IsReadOnly();
-	AltertableScanFunction::PrepareBind(altertable_catalog.GetAltertableVersion(), context, *result, approx_num_pages);
+	AltertableScanFunction::PrepareBind(*result, approx_num_pages);
 
 	bind_data = std::move(result);
 	return AltertableScanFunction();

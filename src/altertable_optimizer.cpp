@@ -540,9 +540,6 @@ bool AltertableLimitPushdownOptimizer::TryPushWholeQuery(ClientContext &context,
 	bind_data->sql = remote_plan.sql;
 	bind_data->names = remote_plan.names;
 	bind_data->types = remote_plan.types;
-	bind_data->read_only = source.read_only;
-	bind_data->requires_materialization = source.requires_materialization;
-	bind_data->can_use_main_thread = source.can_use_main_thread;
 	bind_data->max_threads = 1;
 	if (source.GetCatalog()) {
 		bind_data->SetCatalog(*source.GetCatalog());

@@ -53,10 +53,8 @@ private:
 	AltertableConnection connection;
 };
 
-void AltertableScanFunction::PrepareBind(AltertableVersion version, ClientContext &context,
-                                         AltertableBindData &bind_data, idx_t approx_num_pages) {
+void AltertableScanFunction::PrepareBind(AltertableBindData &bind_data, idx_t approx_num_pages) {
 	bind_data.SetTablePages(approx_num_pages);
-	bind_data.version = version;
 }
 
 AltertableBindData::AltertableBindData(ClientContext &context) {

@@ -47,8 +47,7 @@ protected:
 	void AlterTable(AltertableTransaction &transaction, AddColumnInfo &info);
 	void AlterTable(AltertableTransaction &transaction, RemoveColumnInfo &info);
 
-	static void AddColumn(optional_ptr<AltertableTransaction> transaction, optional_ptr<AltertableSchemaEntry> schema,
-	                      AltertableResult &result, idx_t row, AltertableTableInfo &table_info);
+	static void AddColumn(AltertableResult &result, idx_t row, AltertableTableInfo &table_info);
 
 	void CreateEntries(AltertableTransaction &transaction, AltertableResult &result, idx_t start, idx_t end);
 

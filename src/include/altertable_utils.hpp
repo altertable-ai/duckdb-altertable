@@ -11,27 +11,12 @@
 #include "duckdb.hpp"
 #include "arrow/flight/sql/client.h"
 #include "arrow/type.h"
-#include "altertable_version.hpp"
 
 namespace duckdb {
-class AltertableSchemaEntry;
-class AltertableTransaction;
-class AltertableTableEntry;
-
 struct AltertableTypeData {
 	string type_name;
 	int32_t numeric_precision = 0;
 	int32_t numeric_scale = 0;
-};
-
-enum class AltertableTypeAnnotation {
-	STANDARD,
-	CAST_TO_VARCHAR,
-};
-
-struct AltertableType {
-	AltertableTypeAnnotation info = AltertableTypeAnnotation::STANDARD;
-	vector<AltertableType> children;
 };
 
 struct AltertableConnectionConfig {
@@ -50,25 +35,17 @@ struct AltertableConnectionConfig {
 	bool has_ssl = false;
 
 	static AltertableConnectionConfig Parse(const string &dsn);
-	static string Redact(const string &dsn);
 
-	void Merge(const AltertableConnectionConfig &other);
 	string ToDSN(bool redact_password = false) const;
 };
 
 class AltertableUtils {
 public:
 	static LogicalType ToAltertableType(const LogicalType &input);
-	static LogicalType TypeToLogicalType(optional_ptr<AltertableTransaction> transaction,
-	                                     optional_ptr<AltertableSchemaEntry> schema, const AltertableTypeData &input,
-	                                     AltertableType &altertable_type);
+	static LogicalType TypeToLogicalType(const AltertableTypeData &input);
 	static string TypeToString(const LogicalType &input);
 	static LogicalType RemoveAlias(const LogicalType &type);
-	static AltertableType CreateEmptyAltertableType(const LogicalType &type);
 	static string QuoteAltertableIdentifier(const string &text);
-	static string QuoteAltertableLiteral(const string &text);
-
-	static AltertableVersion ExtractAltertableVersion(const string &version);
 };
 
 //! Map Arrow column types to DuckDB logical types (shared by scans and altertable_query).

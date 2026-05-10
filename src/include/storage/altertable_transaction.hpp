@@ -14,8 +14,6 @@
 
 namespace duckdb {
 class AltertableCatalog;
-class AltertableSchemaEntry;
-class AltertableTableEntry;
 
 enum class AltertableTransactionState { TRANSACTION_NOT_YET_STARTED, TRANSACTION_STARTED, TRANSACTION_FINISHED };
 
@@ -28,25 +26,20 @@ public:
 	void Commit();
 	void Rollback();
 
-	AltertableConnection &GetConnectionWithoutTransaction();
 	AltertableConnection &GetConnection();
 	ClientContext &GetContext();
 
 	string GetDSN();
 	unique_ptr<AltertableResult> Query(const string &query);
 	int64_t ExecuteUpdate(const string &query);
-	unique_ptr<AltertableResult> QueryWithoutTransaction(const string &query);
 	static AltertableTransaction &Get(ClientContext &context, Catalog &catalog);
 
 	optional_ptr<CatalogEntry> ReferenceEntry(shared_ptr<CatalogEntry> &entry);
-
-	string GetTemporarySchema();
 
 private:
 	AltertablePoolConnection connection;
 	AltertableTransactionState transaction_state;
 	AccessMode access_mode;
-	string temporary_schema;
 	reference_map_t<CatalogEntry, shared_ptr<CatalogEntry>> referenced_entries;
 
 private:

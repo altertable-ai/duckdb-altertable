@@ -62,10 +62,6 @@ public:
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 
-	AltertableVersion GetAltertableVersion() const {
-		return version;
-	}
-
 	const string &GetRemoteCatalog() const {
 		return remote_catalog;
 	}
@@ -96,8 +92,6 @@ public:
 private:
 	void DropSchema(ClientContext &context, DropInfo &info) override;
 
-private:
-	AltertableVersion version;
 	AltertableSchemaSet schemas;
 	AltertableConnectionPool connection_pool;
 	string default_schema;

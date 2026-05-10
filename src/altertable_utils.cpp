@@ -135,33 +135,6 @@ AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) 
 	return result;
 }
 
-void AltertableConnectionConfig::Merge(const AltertableConnectionConfig &other) {
-	if (other.has_host) {
-		host = other.host;
-		has_host = true;
-	}
-	if (other.has_port) {
-		port = other.port;
-		has_port = true;
-	}
-	if (other.has_user) {
-		user = other.user;
-		has_user = true;
-	}
-	if (other.has_password) {
-		password = other.password;
-		has_password = true;
-	}
-	if (other.has_catalog) {
-		catalog = other.catalog;
-		has_catalog = true;
-	}
-	if (other.has_ssl) {
-		ssl = other.ssl;
-		has_ssl = true;
-	}
-}
-
 string AltertableConnectionConfig::ToDSN(bool redact_password) const {
 	string result;
 	auto append = [&](const string &key, const string &value) {
@@ -189,10 +162,6 @@ string AltertableConnectionConfig::ToDSN(bool redact_password) const {
 		append("ssl", ssl ? "true" : "false");
 	}
 	return result;
-}
-
-string AltertableConnectionConfig::Redact(const string &dsn) {
-	return Parse(dsn).ToDSN(true);
 }
 
 LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type) {
@@ -301,9 +270,7 @@ LogicalType AltertableUtils::RemoveAlias(const LogicalType &type) {
 	}
 }
 
-LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransaction> transaction,
-                                               optional_ptr<AltertableSchemaEntry> schema,
-                                               const AltertableTypeData &type_info, AltertableType &altertable_type) {
+LogicalType AltertableUtils::TypeToLogicalType(const AltertableTypeData &type_info) {
 	auto &type_name = type_info.type_name;
 	auto type_upper = StringUtil::Upper(type_name);
 
@@ -355,7 +322,6 @@ LogicalType AltertableUtils::TypeToLogicalType(optional_ptr<AltertableTransactio
 	} else if (type_upper == "UUID") {
 		return LogicalType::UUID;
 	} else {
-		altertable_type.info = AltertableTypeAnnotation::CAST_TO_VARCHAR;
 		return LogicalType::VARCHAR;
 	}
 }
@@ -408,69 +374,8 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 	}
 }
 
-AltertableType AltertableUtils::CreateEmptyAltertableType(const LogicalType &type) {
-	AltertableType result;
-	switch (type.id()) {
-	case LogicalTypeId::STRUCT:
-		for (auto &child_type : StructType::GetChildTypes(type)) {
-			result.children.push_back(CreateEmptyAltertableType(child_type.second));
-		}
-		break;
-	case LogicalTypeId::LIST:
-		result.children.push_back(CreateEmptyAltertableType(ListType::GetChildType(type)));
-		break;
-	default:
-		break;
-	}
-	return result;
-}
-
-AltertableVersion AltertableUtils::ExtractAltertableVersion(const string &version_str) {
-	AltertableVersion result;
-	idx_t pos = 0;
-	// scan for the first digit
-	while (pos < version_str.size() && !StringUtil::CharacterIsDigit(version_str[pos])) {
-		pos++;
-	}
-	for (idx_t version_idx = 0; version_idx < 3; version_idx++) {
-		idx_t digit_start = pos;
-		while (pos < version_str.size() && StringUtil::CharacterIsDigit(version_str[pos])) {
-			pos++;
-		}
-		if (digit_start == pos) {
-			// no digits
-			break;
-		}
-		// our version is at [digit_start..pos)
-		auto digit_str = version_str.substr(digit_start, pos - digit_start);
-		auto digit = std::strtoll(digit_str.c_str(), 0, 10);
-		switch (version_idx) {
-		case 0:
-			result.major_v = digit;
-			break;
-		case 1:
-			result.minor_v = digit;
-			break;
-		default:
-			result.patch_v = digit;
-			break;
-		}
-
-		// check if the next character is a dot, if not we stop
-		if (pos >= version_str.size() || version_str[pos] != '.') {
-			break;
-		}
-		pos++;
-	}
-	return result;
-}
-
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
-}
-
-string AltertableUtils::QuoteAltertableLiteral(const string &text) {
-	return KeywordHelper::WriteQuoted(text, '\'');
 }
 
 } // namespace duckdb
