@@ -1,4 +1,4 @@
-# Altertable - DuckDB Arrow Flight SQL Extension
+# DuckDB Altertable Extension
 
 A DuckDB extension for connecting to Altertable. Query Altertable databases directly from DuckDB using the high-performance Arrow Flight protocol.
 
