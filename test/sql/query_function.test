@@ -1,0 +1,63 @@
+# name: test/sql/query_function.test
+# description: Test altertable_query function
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Test altertable_query
+query I
+SELECT * FROM altertable_query('test_db', 'SELECT 1')
+----
+1
+
+# Projection on altertable_query must be handled safely by DuckDB.
+# Regression: the scanner used to read the first Arrow column into the projected output vector.
+query T
+SELECT y FROM altertable_query('test_db', 'SELECT 1 AS x, ''two'' AS y')
+----
+two
+
+# Create a table using altertable_execute (drop first to ensure clean state)
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_table_simple')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_table_simple (a INTEGER)')
+
+# Insert data
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_table_simple VALUES (42)')
+
+# Qualify with main.* on the remote (attach name is not the Flight SQL session catalog unless catalog= is in the DSN).
+query I
+SELECT * FROM altertable_query('test_db', 'SELECT a FROM main.test_table_simple')
+----
+42
+
+# Query via direct table access (using catalog)
+query I
+SELECT * FROM test_db.main.test_table_simple
+----
+42
+
+# Cleanup
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_table_simple')
+
+# Clean up DB
+statement ok
+DETACH test_db

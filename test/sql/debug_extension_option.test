@@ -1,0 +1,14 @@
+# name: test/sql/debug_extension_option.test
+# description: Extension SET option for remote query logging registers and accepts values
+# group: [sql]
+
+require altertable
+
+statement ok
+SET altertable_debug_show_queries = false
+
+statement ok
+SET altertable_debug_show_queries = true
+
+statement ok
+SET altertable_debug_show_queries = false

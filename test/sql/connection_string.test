@@ -1,0 +1,19 @@
+# name: test/sql/connection_string.test
+# description: altertable_scan fails cleanly when schema/table does not exist (see scan_table_success.test for happy path)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement error
+SELECT * FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'nonexistent_table_for_connection_string_test')
+----

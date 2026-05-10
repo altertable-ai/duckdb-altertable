@@ -1,0 +1,21 @@
+# name: test/sql/query_dsn_only.test
+# description: altertable_query first argument as full DSN (no ATTACH)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# No ATTACH — pass connection string directly
+query I
+SELECT * FROM altertable_query('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'SELECT 42 AS v')
+----
+42

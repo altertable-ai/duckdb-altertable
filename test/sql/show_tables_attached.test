@@ -1,0 +1,48 @@
+# name: test/sql/show_tables_attached.test
+# description: Attached Altertable tables are visible through DuckDB catalog scans
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS show_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('show_db', 'DROP TABLE IF EXISTS __show_tables_probe')
+
+statement ok
+CALL altertable_execute('show_db', 'CREATE TABLE __show_tables_probe (id INTEGER)')
+
+# Regression: this must work from a cold catalog scan, before any direct lookup
+# of show_db.main.__show_tables_probe has populated the lazy reload-by-name path.
+query T
+SELECT table_name FROM duckdb_tables() WHERE database_name = 'show_db' AND schema_name = 'main' AND table_name = '__show_tables_probe'
+----
+__show_tables_probe
+
+statement ok
+USE show_db.main
+
+query T
+SELECT name FROM (SHOW TABLES) WHERE name = '__show_tables_probe'
+----
+__show_tables_probe
+
+statement ok
+USE memory.main
+
+statement ok
+CALL altertable_execute('show_db', 'DROP TABLE __show_tables_probe')
+
+statement ok
+DETACH show_db

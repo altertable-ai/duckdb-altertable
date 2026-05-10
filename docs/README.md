@@ -1,185 +1,235 @@
-# DuckDB Extension Template
-This repository contains a template for creating a DuckDB extension. The main goal of this template is to allow users to easily develop, test and distribute their own DuckDB extension. The main branch of the template is always based on the latest stable DuckDB allowing you to try out your extension right away.
+# Altertable - DuckDB Arrow Flight SQL Extension
 
-## Getting started
-First step to getting started is to create your own repo from this template by clicking `Use this template`. Then clone your new repository using 
-```sh
-git clone --recurse-submodules https://github.com/<you>/<your-new-extension-repo>.git
+A DuckDB extension for connecting to Altertable. Query Altertable databases directly from DuckDB using the high-performance Arrow Flight protocol.
+
+## Features
+
+- **ATTACH databases** - Connect to remote Altertable servers as attached databases
+- **Direct table access** - Query remote tables using standard SQL syntax
+- **Raw query execution** - Run arbitrary SQL queries and DDL statements on remote servers
+- **Attached writes** - Use `CREATE TABLE`, `CREATE TABLE AS`, `INSERT ... VALUES`, and `INSERT ... SELECT` against attached Altertable tables
+- **Catalog integration** - Browse schemas and tables through DuckDB's catalog
+
+## Installation
+
+```sql
+INSTALL altertable FROM community;
+LOAD altertable;
 ```
-Note that `--recurse-submodules` will ensure DuckDB is pulled which is required to build the extension.
 
-## Building
-### Managing dependencies
-> [!IMPORTANT]  
-> The example extension uses VCPKG to build with a dependency for instructive purposes, so when skipping this step the build may not work without removing the dependency.
+## Quick Start
 
-DuckDB extensions uses VCPKG for dependency management. Enabling VCPKG is very simple: follow the [installation instructions](https://vcpkg.io/en/getting-started) or just run the following:
-```shell
-cd <your-working-dir-not-the-plugin-repo>
+### Attach a Remote Database
+
+```sql
+-- Attach an Altertable database
+ATTACH 'user=myuser password=mypass' AS db (TYPE ALTERTABLE);
+
+-- Query tables directly
+SELECT * FROM db.main.events;
+
+-- Create and load remote tables through the attached database
+CREATE TABLE db.main.example_events (id INTEGER, name VARCHAR);
+INSERT INTO db.main.example_events VALUES (1, 'launch');
+INSERT INTO db.main.example_events SELECT id, name FROM local_events;
+
+-- Detach when done
+DETACH db;
+```
+
+### Connection String Parameters
+
+| Parameter  | Description                        | Example                    |
+| ---------- | ---------------------------------- | -------------------------- |
+| `host`     | Server hostname or IP address      | `flight.altertable.ai`     |
+| `port`     | Server port                        | `443`                      |
+| `user`     | Username for authentication        | `your-altertable-user`     |
+| `password` | Password for authentication        | `your-altertable-password` |
+| `catalog`  | Remote Altertable catalog          | `analytics`                |
+| `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
+
+Default connection behavior:
+
+- `host=flight.altertable.ai`
+- `port=443`
+- `ssl=true` (TLS enabled unless you explicitly set `ssl=false`)
+- set `catalog` / `dbname` / `database` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
+- DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
+
+### Secrets
+
+Use DuckDB secrets so credentials are not repeated in SQL statements:
+
+```sql
+CREATE SECRET my_altertable (
+    TYPE altertable,
+    HOST 'flight.altertable.ai',
+    PORT '443',
+    USER 'your-user',
+    PASSWORD 'your-password',
+    CATALOG 'analytics',
+    SSL 'true'
+);
+
+ATTACH '' AS analytics (TYPE altertable, SECRET my_altertable);
+```
+
+## Functions
+
+### `altertable_query(database, query)`
+
+Execute a SELECT query on the attached database and return results.
+
+```sql
+-- Run a query and get results
+SELECT * FROM altertable_query('db', 'SELECT id, name FROM users WHERE active = true');
+```
+
+### `altertable_execute(database, statement)`
+
+Execute DDL or DML statements (CREATE, INSERT, UPDATE, DELETE, etc.) on the remote database.
+
+```sql
+-- Create a table
+CALL altertable_execute('db', 'CREATE TABLE my_table (id INTEGER, name VARCHAR)');
+
+-- Insert data
+CALL altertable_execute('db', 'INSERT INTO my_table VALUES (1, ''Alice'')');
+
+-- Drop a table
+CALL altertable_execute('db', 'DROP TABLE IF EXISTS my_table');
+```
+
+### `altertable_scan(connection_string, schema, table)`
+
+Scan a remote table directly without attaching a database.
+
+```sql
+SELECT * FROM altertable_scan(
+    'user=u password=p',
+    'main',
+    'my_table'
+);
+```
+
+### `altertable_scan_pushdown(connection_string, schema, table)`
+
+Same implementation as `altertable_scan` (predicate and projection pushdown are enabled for both). Use whichever name you prefer; there is no behavioral difference today.
+
+```sql
+SELECT * FROM altertable_scan_pushdown(
+    'host=server.com port=443 user=u password=p ssl=true',
+    'public',
+    'my_table'
+) WHERE id > 100;
+```
+
+## Usage Examples
+
+### Full Workflow Example
+
+```sql
+-- Load the extension
+LOAD altertable;
+
+-- Connect to a remote Arrow Flight SQL server
+ATTACH 'user=acme password=secret ssl=true' AS analytics (TYPE ALTERTABLE);
+
+-- Explore available tables
+SELECT * FROM analytics.information_schema.tables;
+
+-- Query remote data
+SELECT
+    customer_id,
+    SUM(order_total) as total_spent
+FROM analytics.sales.orders
+GROUP BY customer_id
+ORDER BY total_spent DESC
+LIMIT 10;
+
+-- Join local and remote data
+CREATE TABLE local_customers AS SELECT * FROM read_csv('customers.csv');
+
+SELECT l.name, r.total_orders
+FROM local_customers l
+JOIN analytics.sales.customer_summary r ON l.id = r.customer_id;
+```
+
+### Attached DDL and Writes
+
+The attached database path supports common relation DDL and inserts:
+
+```sql
+CREATE TABLE analytics.main.new_orders (order_id INTEGER, amount DOUBLE);
+INSERT INTO analytics.main.new_orders VALUES (1, 42.50);
+INSERT INTO analytics.main.new_orders
+SELECT order_id, amount FROM local_orders;
+
+CREATE TABLE analytics.main.top_customers AS
+SELECT customer_id, SUM(amount) AS total_amount
+FROM analytics.main.new_orders
+GROUP BY customer_id;
+
+ALTER TABLE analytics.main.new_orders ADD COLUMN note VARCHAR;
+DROP TABLE analytics.main.top_customers;
+```
+
+`READ_ONLY` attachments reject attached writes and `altertable_execute`.
+Attached `UPDATE` and `DELETE` are intentionally rejected today because DuckDB's storage write path requires row identifiers that Altertable does not expose through this extension yet. Use `altertable_execute` to forward remote `UPDATE` or `DELETE` SQL explicitly:
+
+```sql
+CALL altertable_execute('analytics', 'UPDATE main.new_orders SET note = ''reviewed'' WHERE order_id = 1');
+CALL altertable_execute('analytics', 'DELETE FROM main.new_orders WHERE order_id = 1');
+```
+
+## Building from Source
+
+### Prerequisites
+
+- DuckDB source (as git submodule)
+- VCPKG for dependency management
+- CMake 3.20+ (matches the extension `CMakeLists.txt`)
+- Arrow Flight SQL libraries (arrow, arrow-flight, arrow-flight-sql)
+
+### Setup VCPKG
+
+```bash
 git clone https://github.com/Microsoft/vcpkg.git
-cd vcpkg && git checkout ce613c41372b23b1f51333815feb3edd87ef8a8b
-sh ./scripts/bootstrap.sh -disableMetrics
-export VCPKG_TOOLCHAIN_PATH=`pwd`/vcpkg/scripts/buildsystems/vcpkg.cmake
+cd vcpkg && ./bootstrap-vcpkg.sh
+export VCPKG_TOOLCHAIN_PATH=$(pwd)/scripts/buildsystems/vcpkg.cmake
 ```
 
-> [!NOTE]
-> VCPKG is only required for extensions that want to rely on it for dependency management. If you want to develop an extension without dependencies, or want to do your own dependency management, just skip this step. 
+### Build
 
-### Updating Submodules
-DuckDB extensions use two submodules that are included in your forked extension repo when you use the `--recurse-submodules` flag. These modules are:
-
-| Name                  | Repository                                      | Description |
-|-----------------------|-------------------------------------------------|-------------|
-| duckdb                | https://github.com/duckdb/duckdb                | This repository contains core DuckDB code required for building extensions.            |
-| extension-ci-tools    | https://github.com/duckdb/extension-ci-tools    | This repository contains reusable components for building, testing and deploying DuckDB extensions.            |
-
-
-> [!IMPORTANT]  
-> It is recommended that you update your submodules at least once every other major LTS release to avoid CI/CD pipeline build errors caused by remaining pinned to a stale commit of these submodules.
-
-To update all submodules to the latest commit hash:
 ```bash
-git submodule update --init --recursive
-```
-
-To update your submodules to a specific commit hash, for example to update duckdb to the hash `8e146474d7adb960c5a2941142fe4482cc7dfc08`:
-```bash
-cd duckdb 
-git fetch --all
-git checkout 8e146474d7adb960c5a2941142fe4482cc7dfc08   # or any tag/branch/commit hash
-cd ..
-git add duckdb
-git commit -m "Pin DuckDB submodule to cc7dfc08"
-git push HEAD:update-submodule-branch
-```
-
-### Build steps
-Now to build the extension, run:
-```sh
-make
-```
-The main binaries that will be built are:
-```sh
-./build/release/duckdb
-./build/release/test/unittest
-./build/release/extension/<extension_name>/<extension_name>.duckdb_extension
-```
-- `duckdb` is the binary for the duckdb shell with the extension code automatically loaded. 
-- `unittest` is the test runner of duckdb. Again, the extension is already linked into the binary.
-- `<extension_name>.duckdb_extension` is the loadable binary as it would be distributed.
-
-### Tips for speedy builds
-DuckDB extensions currently rely on DuckDB's build system to provide easy testing and distributing. This does however come at the downside of requiring the template to build DuckDB and its unittest binary every time you build your extension. To mitigate this, we highly recommend installing [ccache](https://ccache.dev/) and [ninja](https://ninja-build.org/). This will ensure you only need to build core DuckDB once and allows for rapid rebuilds.
-
-To build using ninja and ccache ensure both are installed and run:
-
-```sh
+git clone --recurse-submodules https://github.com/altertable-ai/duckdb-altertable.git
+cd duckdb-altertable
 GEN=ninja make
 ```
 
-## Running the extension
-To run the extension code, simply start the shell with `./build/release/duckdb`. This shell will have the extension pre-loaded.  
+Build outputs:
 
-Now we can use the features from the extension directly in DuckDB. The template contains a single scalar function `quack()` that takes a string arguments and returns a string:
-```
-D select quack('Jane') as result;
-┌───────────────┐
-│    result     │
-│    varchar    │
-├───────────────┤
-│ Quack Jane 🐥 │
-└───────────────┘
+- `./build/release/duckdb` - DuckDB shell with extension loaded
+- `./build/release/extension/altertable/altertable.duckdb_extension` - Loadable extension
+
+### Run Tests
+
+```bash
+# Recommended: starts the official mock container, sets ALTERTABLE_TEST_* for you, then runs the suite
+make test-mock
 ```
 
-## Running the tests
-Different tests can be created for DuckDB extensions. The primary way of testing DuckDB extensions should be the SQL tests in `./test/sql`. These SQL tests can be run using:
-```sh
+For a manual server (no Docker), set the variables yourself, for example:
+
+```bash
+export ALTERTABLE_TEST_HOST=127.0.0.1
+export ALTERTABLE_TEST_PORT=15002
+export ALTERTABLE_TEST_USER=testuser
+export ALTERTABLE_TEST_PASSWORD=testpass
+export ALTERTABLE_TEST_SSL=false
 make test
 ```
 
-## Getting started with your own extension
-After creating a repository from this template, the first step is to name your extension. To rename the extension, run:
-```sh
-# Note: This will rewrite this file!
-python3 ./scripts/bootstrap-template.py <extension_name_you_want>
-```
-Feel free to delete the script after this step.
+## License
 
-Now you're good to go! After a (re)build, you should now be able to use your duckdb extension:
-```
-./build/release/duckdb
-D select <extension_name_you_chose>('Jane') as result;
-┌─────────────────────────────────────┐
-│                result               │
-│               varchar               │
-├─────────────────────────────────────┤
-│ <extension_name_you_chose> Jane 🐥  │
-└─────────────────────────────────────┘
-```
-
-For inspiration/examples on how to extend DuckDB in a more meaningful way, check out the [test extensions](https://github.com/duckdb/duckdb/blob/main/test/extension),
-the [in-tree extensions](https://github.com/duckdb/duckdb/tree/main/extension), and the [out-of-tree extensions](https://github.com/duckdblabs).
-
-## Distributing your extension
-To distribute your extension binaries, there are a few options.
-
-### Community extensions
-The recommended way of distributing extensions is through the [community extensions repository](https://github.com/duckdb/community-extensions).
-This repository is designed specifically for extensions that are built using this extension template, meaning that as long as your extension can be
-built using the default CI in this template, submitting it to the community extensions is a very simple process. The process works similarly to popular
-package managers like homebrew and vcpkg, where a PR containing a descriptor file is submitted to the package manager repository. After the CI in the 
-community extensions repository completes, the extension can be installed and loaded in DuckDB with:
-```SQL
-INSTALL <my_extension> FROM community;
-LOAD <my_extension>
-```
-For more information, see the [community extensions documentation](https://duckdb.org/community_extensions/documentation).
-
-### Downloading artifacts from GitHub
-The default CI in this template will automatically upload the binaries for every push to the main branch as GitHub Actions artifacts. These
-can be downloaded manually and then loaded directly using:
-```SQL
-LOAD '/path/to/downloaded/extension.duckdb_extension';
-```
-Note that this will require starting DuckDB with the
-`allow_unsigned_extensions` option set to true. How to set this will depend on the client you're using. For the CLI it is done like:
-```shell
-duckdb -unsigned
-```
-
-### Uploading to a custom repository
-If for some reason distributing through community extensions is not an option, extensions can also be uploaded to a custom extension repository.
-This will give some more control over where and how the extensions are distributed, but comes with the downside of requiring the `allow_unsigned_extensions`
-option to be set. For examples of how to configure a manual GitHub Actions deploy pipeline, check out the extension deploy script in https://github.com/duckdb/extension-ci-tools.
-Some examples of extensions that use this CI/CD workflow check out [spatial](https://github.com/duckdblabs/duckdb_spatial) or [aws](https://github.com/duckdb/duckdb_aws).
-
-Extensions in custom repositories can be installed and loaded using:
-```SQL
-INSTALL <my_extension> FROM 'http://my-custom-repo'
-LOAD <my_extension>
-```
-
-### Versioning of your extension
-Extension binaries will only work for the specific DuckDB version they were built for. The version of DuckDB that is targeted 
-is set to the latest stable release for the main branch of the template so initially that is all you need. As new releases 
-of DuckDB are published however, the extension repository will need to be updated. The template comes with a workflow set-up
-that will automatically build the binaries for all DuckDB target architectures that are available in the corresponding DuckDB
-version. This workflow is found in `.github/workflows/MainDistributionPipeline.yml`. It is up to the extension developer to keep
-this up to date with DuckDB. Note also that its possible to distribute binaries for multiple DuckDB versions in this workflow 
-by simply duplicating the jobs.
-
-## Setting up CLion 
-
-### Opening project
-Configuring CLion with the extension template requires a little work. Firstly, make sure that the DuckDB submodule is available. 
-Then make sure to open `./duckdb/CMakeLists.txt` (so not the top level `CMakeLists.txt` file from this repo) as a project in CLion.
-Now to fix your project path go to `tools->CMake->Change Project Root`([docs](https://www.jetbrains.com/help/clion/change-project-root-directory.html)) to set the project root to the root dir of this repo.
-
-### Debugging
-To set up debugging in CLion, there are two simple steps required. Firstly, in `CLion -> Settings / Preferences -> Build, Execution, Deploy -> CMake` you will need to add the desired builds (e.g. Debug, Release, RelDebug, etc). There's different ways to configure this, but the easiest is to leave all empty, except the `build path`, which needs to be set to `../build/{build type}`, and CMake Options to which the following flag should be added, with the path to the extension CMakeList:
-
-```
--DDUCKDB_EXTENSION_CONFIGS=<path_to_the_exentension_CMakeLists.txt>
-```
-
-The second step is to configure the unittest runner as a run/debug configuration. To do this, go to `Run -> Edit Configurations` and click `+ -> Cmake Application`. The target and executable should be `unittest`. This will run all the DuckDB tests. To specify only running the extension specific tests, add `--test-dir ../../.. [sql]` to the `Program Arguments`. Note that it is recommended to use the `unittest` executable for testing/development within CLion. The actual DuckDB CLI currently does not reliably work as a run target in CLion.
+MIT License - see [LICENSE](LICENSE) for details.

@@ -1,0 +1,381 @@
+#include "altertable_utils.hpp"
+#include "storage/altertable_schema_entry.hpp"
+#include "storage/altertable_transaction.hpp"
+
+namespace duckdb {
+
+static bool NeedsDSNQuoting(const string &value) {
+	for (auto c : value) {
+		if (StringUtil::CharacterIsSpace(c) || c == '\'' || c == '"' || c == '\\' || c == '=') {
+			return true;
+		}
+	}
+	return value.empty();
+}
+
+static string QuoteDSNValue(const string &value) {
+	if (!NeedsDSNQuoting(value)) {
+		return value;
+	}
+	string result = "'";
+	for (auto c : value) {
+		if (c == '\'' || c == '\\') {
+			result += '\\';
+		}
+		result += c;
+	}
+	result += "'";
+	return result;
+}
+
+static string ReadDSNToken(const string &dsn, idx_t &pos) {
+	while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
+		pos++;
+	}
+	string result;
+	if (pos >= dsn.size()) {
+		return result;
+	}
+	if (dsn[pos] == '\'' || dsn[pos] == '"') {
+		auto quote = dsn[pos++];
+		while (pos < dsn.size()) {
+			auto c = dsn[pos++];
+			if (c == '\\' && pos < dsn.size()) {
+				result += dsn[pos++];
+				continue;
+			}
+			if (c == quote) {
+				break;
+			}
+			result += c;
+		}
+		return result;
+	}
+	while (pos < dsn.size() && !StringUtil::CharacterIsSpace(dsn[pos])) {
+		result += dsn[pos++];
+	}
+	return result;
+}
+
+static string UnquoteDSNValue(const string &value) {
+	if (value.size() < 2) {
+		return value;
+	}
+	auto quote = value[0];
+	if ((quote != '\'' && quote != '"') || value[value.size() - 1] != quote) {
+		return value;
+	}
+	string result;
+	for (idx_t i = 1; i + 1 < value.size(); i++) {
+		if (value[i] == '\\' && i + 2 < value.size()) {
+			result += value[++i];
+			continue;
+		}
+		result += value[i];
+	}
+	return result;
+}
+
+AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) {
+	AltertableConnectionConfig result;
+	idx_t pos = 0;
+	while (pos < dsn.size()) {
+		auto token = ReadDSNToken(dsn, pos);
+		if (token.empty()) {
+			continue;
+		}
+		auto equals = token.find('=');
+		if (equals == string::npos) {
+			continue;
+		}
+		auto key = StringUtil::Lower(token.substr(0, equals));
+		auto value = token.substr(equals + 1);
+		if ((value.empty() || value == "'" || value == "\"") && pos < dsn.size()) {
+			value = ReadDSNToken(dsn, pos);
+		}
+		value = UnquoteDSNValue(value);
+
+		if (key == "host") {
+			result.host = value;
+			result.has_host = true;
+		} else if (key == "port") {
+			try {
+				result.port = std::stoi(value);
+			} catch (const std::exception &) {
+				throw InvalidInputException("Invalid ALTERTABLE port value '%s'", value);
+			}
+			if (result.port <= 0 || result.port > 65535) {
+				throw InvalidInputException("Invalid ALTERTABLE port value '%s'", value);
+			}
+			result.has_port = true;
+		} else if (key == "user") {
+			result.user = value;
+			result.has_user = true;
+		} else if (key == "password") {
+			result.password = value;
+			result.has_password = true;
+		} else if (key == "ssl") {
+			auto lower_value = StringUtil::Lower(value);
+			if (lower_value == "false" || lower_value == "0" || lower_value == "no") {
+				result.ssl = false;
+			} else if (lower_value == "true" || lower_value == "1" || lower_value == "yes" || lower_value.empty()) {
+				result.ssl = true;
+			} else {
+				throw InvalidInputException("Invalid ALTERTABLE ssl value '%s'", value);
+			}
+			result.has_ssl = true;
+		} else if (key == "catalog") {
+			result.catalog = value;
+			result.has_catalog = true;
+		} else if ((key == "database" || key == "dbname") && !result.has_catalog) {
+			result.catalog = value;
+			result.has_catalog = true;
+		}
+	}
+	return result;
+}
+
+string AltertableConnectionConfig::ToDSN(bool redact_password) const {
+	string result;
+	auto append = [&](const string &key, const string &value) {
+		if (!result.empty()) {
+			result += " ";
+		}
+		result += key + "=" + QuoteDSNValue(value);
+	};
+	if (has_host || host != "flight.altertable.ai") {
+		append("host", host);
+	}
+	if (has_port || port != 443) {
+		append("port", to_string(port));
+	}
+	if (has_user || !user.empty()) {
+		append("user", user);
+	}
+	if (has_password || !password.empty()) {
+		append("password", redact_password ? "****" : password);
+	}
+	if (has_catalog || !catalog.empty()) {
+		append("catalog", catalog);
+	}
+	if (has_ssl || !ssl) {
+		append("ssl", ssl ? "true" : "false");
+	}
+	return result;
+}
+
+LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type) {
+	switch (arrow_type.id()) {
+	case arrow::Type::BOOL:
+		return LogicalType::BOOLEAN;
+	case arrow::Type::INT8:
+		return LogicalType::TINYINT;
+	case arrow::Type::INT16:
+		return LogicalType::SMALLINT;
+	case arrow::Type::INT32:
+		return LogicalType::INTEGER;
+	case arrow::Type::INT64:
+		return LogicalType::BIGINT;
+	case arrow::Type::UINT8:
+		return LogicalType::UTINYINT;
+	case arrow::Type::UINT16:
+		return LogicalType::USMALLINT;
+	case arrow::Type::UINT32:
+		return LogicalType::UINTEGER;
+	case arrow::Type::UINT64:
+		return LogicalType::UBIGINT;
+	case arrow::Type::FLOAT:
+		return LogicalType::FLOAT;
+	case arrow::Type::DOUBLE:
+		return LogicalType::DOUBLE;
+	case arrow::Type::STRING:
+	case arrow::Type::LARGE_STRING:
+		return LogicalType::VARCHAR;
+	case arrow::Type::BINARY:
+	case arrow::Type::LARGE_BINARY:
+		return LogicalType::BLOB;
+	case arrow::Type::FIXED_SIZE_BINARY:
+		return LogicalType::BLOB;
+	case arrow::Type::DATE32:
+	case arrow::Type::DATE64:
+		return LogicalType::DATE;
+	case arrow::Type::TIME32:
+	case arrow::Type::TIME64:
+		return LogicalType::TIME;
+	case arrow::Type::TIMESTAMP:
+		return LogicalType::TIMESTAMP;
+	case arrow::Type::DECIMAL128: {
+		auto &dec_type = static_cast<const arrow::Decimal128Type &>(arrow_type);
+		return LogicalType::DECIMAL(dec_type.precision(), dec_type.scale());
+	}
+	case arrow::Type::DECIMAL256:
+		// DuckDB does not support 256-bit decimals; match scan bind behavior
+		return LogicalType::VARCHAR;
+	default:
+		return LogicalType::VARCHAR;
+	}
+}
+
+string AltertableUtils::TypeToString(const LogicalType &input) {
+	if (input.HasAlias()) {
+		if (StringUtil::CIEquals(input.GetAlias(), "wkb_blob")) {
+			return "GEOMETRY";
+		}
+		return input.GetAlias();
+	}
+	switch (input.id()) {
+	case LogicalTypeId::FLOAT:
+		return "FLOAT";
+	case LogicalTypeId::DOUBLE:
+		return "DOUBLE";
+	case LogicalTypeId::BLOB:
+		return "BLOB";
+	case LogicalTypeId::LIST:
+		return AltertableUtils::TypeToString(ListType::GetChildType(input)) + "[]";
+	case LogicalTypeId::ENUM:
+		throw NotImplementedException("Enums in Altertable must be named - unnamed enums are not supported. Use CREATE "
+		                              "TYPE to create a named enum.");
+	case LogicalTypeId::STRUCT:
+		throw NotImplementedException("Composite types in Altertable must be named - unnamed composite types are not "
+		                              "supported. Use CREATE TYPE to create a named composite type.");
+	case LogicalTypeId::MAP:
+		throw NotImplementedException("MAP type not supported in Altertable");
+	case LogicalTypeId::UNION:
+		throw NotImplementedException("UNION type not supported in Altertable");
+	default:
+		return input.ToString();
+	}
+}
+
+LogicalType AltertableUtils::RemoveAlias(const LogicalType &type) {
+	if (!type.HasAlias()) {
+		return type;
+	}
+	if (StringUtil::CIEquals(type.GetAlias(), "json")) {
+		return type;
+	}
+	switch (type.id()) {
+	case LogicalTypeId::STRUCT: {
+		auto child_types = StructType::GetChildTypes(type);
+		return LogicalType::STRUCT(std::move(child_types));
+	}
+	case LogicalTypeId::ENUM: {
+		auto &enum_vector = EnumType::GetValuesInsertOrder(type);
+		Vector new_vector(LogicalType::VARCHAR);
+		new_vector.Reference(enum_vector);
+		return LogicalType::ENUM(new_vector, EnumType::GetSize(type));
+	}
+	default:
+		throw InternalException("Unsupported logical type for RemoveAlias");
+	}
+}
+
+LogicalType AltertableUtils::TypeToLogicalType(const AltertableTypeData &type_info) {
+	auto &type_name = type_info.type_name;
+	auto type_upper = StringUtil::Upper(type_name);
+
+	if (type_upper == "BOOLEAN") {
+		return LogicalType::BOOLEAN;
+	} else if (type_upper == "TINYINT") {
+		return LogicalType::TINYINT;
+	} else if (type_upper == "SMALLINT") {
+		return LogicalType::SMALLINT;
+	} else if (type_upper == "INTEGER" || type_upper == "INT") {
+		return LogicalType::INTEGER;
+	} else if (type_upper == "BIGINT") {
+		return LogicalType::BIGINT;
+	} else if (type_upper == "HUGEINT") {
+		return LogicalType::HUGEINT;
+	} else if (type_upper == "UTINYINT") {
+		return LogicalType::UTINYINT;
+	} else if (type_upper == "USMALLINT") {
+		return LogicalType::USMALLINT;
+	} else if (type_upper == "UINTEGER") {
+		return LogicalType::UINTEGER;
+	} else if (type_upper == "UBIGINT") {
+		return LogicalType::UBIGINT;
+	} else if (type_upper == "FLOAT" || type_upper == "REAL") {
+		return LogicalType::FLOAT;
+	} else if (type_upper == "DOUBLE") {
+		return LogicalType::DOUBLE;
+	} else if (StringUtil::StartsWith(type_upper, "DECIMAL")) {
+		if (type_info.numeric_precision > 0) {
+			return LogicalType::DECIMAL(type_info.numeric_precision, type_info.numeric_scale);
+		}
+		return LogicalType::DOUBLE;
+	} else if (type_upper == "VARCHAR") {
+		return LogicalType::VARCHAR;
+	} else if (type_upper == "DATE") {
+		return LogicalType::DATE;
+	} else if (type_upper == "BLOB") {
+		return LogicalType::BLOB;
+	} else if (type_upper == "TIME") {
+		return LogicalType::TIME;
+	} else if (type_upper == "TIMETZ" || type_upper == "TIME WITH TIME ZONE") {
+		return LogicalType::TIME_TZ;
+	} else if (type_upper == "TIMESTAMP") {
+		return LogicalType::TIMESTAMP;
+	} else if (type_upper == "TIMESTAMPTZ" || type_upper == "TIMESTAMP WITH TIME ZONE") {
+		return LogicalType::TIMESTAMP_TZ;
+	} else if (type_upper == "INTERVAL") {
+		return LogicalType::INTERVAL;
+	} else if (type_upper == "UUID") {
+		return LogicalType::UUID;
+	} else {
+		return LogicalType::VARCHAR;
+	}
+}
+
+LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
+	switch (input.id()) {
+	case LogicalTypeId::BOOLEAN:
+	case LogicalTypeId::TINYINT:
+	case LogicalTypeId::SMALLINT:
+	case LogicalTypeId::INTEGER:
+	case LogicalTypeId::BIGINT:
+	case LogicalTypeId::HUGEINT:
+	case LogicalTypeId::UTINYINT:
+	case LogicalTypeId::USMALLINT:
+	case LogicalTypeId::UINTEGER:
+	case LogicalTypeId::UBIGINT:
+	case LogicalTypeId::FLOAT:
+	case LogicalTypeId::DOUBLE:
+	case LogicalTypeId::ENUM:
+	case LogicalTypeId::BLOB:
+	case LogicalTypeId::DATE:
+	case LogicalTypeId::DECIMAL:
+	case LogicalTypeId::INTERVAL:
+	case LogicalTypeId::TIME:
+	case LogicalTypeId::TIME_TZ:
+	case LogicalTypeId::TIMESTAMP:
+	case LogicalTypeId::TIMESTAMP_TZ:
+	case LogicalTypeId::UUID:
+	case LogicalTypeId::VARCHAR:
+		return input;
+	case LogicalTypeId::LIST:
+		return LogicalType::LIST(ToAltertableType(ListType::GetChildType(input)));
+	case LogicalTypeId::STRUCT: {
+		child_list_t<LogicalType> new_types;
+		for (idx_t c = 0; c < StructType::GetChildCount(input); c++) {
+			auto &name = StructType::GetChildName(input, c);
+			auto &type = StructType::GetChildType(input, c);
+			new_types.push_back(make_pair(name, ToAltertableType(type)));
+		}
+		auto result = LogicalType::STRUCT(std::move(new_types));
+		result.SetAlias(input.GetAlias());
+		return result;
+	}
+	case LogicalTypeId::TIMESTAMP_SEC:
+	case LogicalTypeId::TIMESTAMP_MS:
+	case LogicalTypeId::TIMESTAMP_NS:
+		return LogicalType::TIMESTAMP;
+	default:
+		return LogicalType::VARCHAR;
+	}
+}
+
+string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
+	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+}
+
+} // namespace duckdb

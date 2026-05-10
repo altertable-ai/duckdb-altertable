@@ -1,0 +1,15 @@
+# name: test/sql/extension_load.test
+# description: Test that the Altertable extension loads correctly
+# group: [sql]
+
+require altertable
+
+# Verify extension is loaded
+query I
+SELECT 1
+----
+1
+
+# Check that altertable functions are registered
+statement ok
+SELECT * FROM duckdb_functions() WHERE function_name LIKE 'altertable%' LIMIT 1

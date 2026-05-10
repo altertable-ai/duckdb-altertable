@@ -1,0 +1,68 @@
+# name: test/sql/explicit_duckdb_transaction.test
+# description: Explicit DuckDB BEGIN/COMMIT around a remote Altertable scan (remote txn follows catalog access)
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS txdb (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __explicit_tx_tbl')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __explicit_tx_tbl (n INTEGER)')
+
+statement ok
+CALL altertable_execute('txdb', 'INSERT INTO __explicit_tx_tbl VALUES (77)')
+
+statement ok
+BEGIN TRANSACTION
+
+query I
+SELECT n FROM txdb.main.__explicit_tx_tbl ORDER BY n
+----
+77
+
+statement ok
+COMMIT
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __explicit_tx_tbl')
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __attached_tx_visibility')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __attached_tx_visibility (n INTEGER)')
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO txdb.main.__attached_tx_visibility VALUES (123)
+
+# Attached scans must use the same remote transaction connection as attached writes.
+query I
+SELECT n FROM txdb.main.__attached_tx_visibility ORDER BY n
+----
+123
+
+statement ok
+COMMIT
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __attached_tx_visibility')
+
+statement ok
+DETACH txdb

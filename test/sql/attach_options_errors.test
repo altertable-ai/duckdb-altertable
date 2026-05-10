@@ -1,0 +1,10 @@
+# name: test/sql/attach_options_errors.test
+# description: Rejected ATTACH options for TYPE ALTERTABLE
+# group: [sql]
+
+require altertable
+
+statement error
+ATTACH 'host=localhost port=1 user=u password=p' AS bad_attach (TYPE ALTERTABLE, not_a_valid_option 'x')
+----
+Unrecognized option for Altertable attach: not_a_valid_option

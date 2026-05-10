@@ -1,0 +1,17 @@
+# name: test/sql/execute_errors.test
+# description: altertable_execute binder errors (missing DB, non-Altertable DB)
+# group: [sql]
+
+require altertable
+
+# Default in-memory database exists but is not an Altertable catalog
+statement error
+CALL altertable_execute('memory', 'SELECT 1')
+----
+Database "memory" is not an Altertable database
+
+# Unknown alias should fail before any network call
+statement error
+CALL altertable_execute('__no_such_attached_database__', 'SELECT 1')
+----
+Database "__no_such_attached_database__" not found

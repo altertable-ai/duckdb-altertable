@@ -1,0 +1,53 @@
+# name: test/sql/query_pushdown.test
+# description: Test altertable_query function
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# First attach a database
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS test_db (TYPE ALTERTABLE)
+
+# Create a table using altertable_execute (drop first to ensure clean state)
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_table_pushdown')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_table_pushdown (a INTEGER)')
+
+# Insert data
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_table_pushdown VALUES (42),(50)')
+
+# Query via direct table access
+query I
+SELECT * FROM test_db.main.test_table_pushdown ORDER BY a ASC LIMIT 1
+----
+42
+
+# Explain should show ALTERTABLE_SCAN
+query II
+EXPLAIN SELECT * FROM test_db.main.test_table_pushdown ORDER BY a ASC LIMIT 1
+----
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
+
+# Test Filter Pushdown
+query I
+SELECT * FROM test_db.main.test_table_pushdown WHERE a = 50
+----
+50
+
+query II
+EXPLAIN SELECT * FROM test_db.main.test_table_pushdown WHERE a = 50
+----
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*

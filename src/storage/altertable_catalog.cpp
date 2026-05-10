@@ -1,0 +1,248 @@
+//===----------------------------------------------------------------------===//
+//                         DuckDB
+//
+// storage/altertable_catalog.cpp
+//
+//
+//===----------------------------------------------------------------------===//
+
+#include "storage/altertable_catalog.hpp"
+#include "storage/altertable_schema_entry.hpp"
+#include "storage/altertable_transaction.hpp"
+#include "altertable_utils.hpp"
+#include "altertable_physical.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
+#include "duckdb/storage/database_size.hpp"
+#include "duckdb/parser/parsed_data/drop_info.hpp"
+#include "duckdb/parser/parsed_data/create_schema_info.hpp"
+#include "duckdb/main/attached_database.hpp"
+#include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/planner/operator/logical_insert.hpp"
+
+namespace duckdb {
+
+AltertableCatalog::AltertableCatalog(AttachedDatabase &db_p, string connection_string_p, string attach_path_p,
+                                     AccessMode access_mode, string schema_to_load)
+    : Catalog(db_p), connection_string(std::move(connection_string_p)), attach_path(std::move(attach_path_p)),
+      access_mode(access_mode), schemas(*this, schema_to_load), connection_pool(*this), default_schema(schema_to_load) {
+	if (default_schema.empty()) {
+		default_schema = "main";
+	}
+	remote_catalog = AltertableCatalog::ExtractCatalogFromConnectionString(connection_string);
+}
+
+string AltertableCatalog::ExtractCatalogFromConnectionString(const string &connection_string) {
+	return AltertableConnectionConfig::Parse(connection_string).catalog;
+}
+
+static string QuoteDSNValue(const string &value) {
+	bool needs_quoting = value.empty();
+	for (char c : value) {
+		if (StringUtil::CharacterIsSpace(c) || c == '\'' || c == '"' || c == '\\' || c == '=') {
+			needs_quoting = true;
+			break;
+		}
+	}
+	if (!needs_quoting) {
+		return value;
+	}
+	string result = "'";
+	for (char c : value) {
+		if (c == '\'' || c == '\\') {
+			result += '\\';
+		}
+		result += c;
+	}
+	result += "'";
+	return result;
+}
+
+string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
+	Value input_val = kv_secret.TryGetValue(name);
+	if (input_val.IsNull()) {
+		return string();
+	}
+	return name + "=" + QuoteDSNValue(input_val.ToString()) + " ";
+}
+
+unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {
+	auto &secret_manager = SecretManager::Get(context);
+	auto transaction = CatalogTransaction::GetSystemCatalogTransaction(context);
+	// FIXME: this should be adjusted once the `GetSecretByName` API supports this use case
+	auto secret_entry = secret_manager.GetSecretByName(transaction, secret_name, "memory");
+	if (secret_entry) {
+		return secret_entry;
+	}
+	secret_entry = secret_manager.GetSecretByName(transaction, secret_name, "local_file");
+	if (secret_entry) {
+		return secret_entry;
+	}
+	return nullptr;
+}
+
+string AltertableCatalog::GetConnectionString(ClientContext &context, const string &attach_path, string secret_name) {
+	// if no secret is specified we default to the unnamed altertable secret, if it exists
+	string connection_string = attach_path;
+	bool explicit_secret = !secret_name.empty();
+	if (!explicit_secret) {
+		// look up settings from the default unnamed altertable secret if none is provided
+		secret_name = "__default_altertable";
+	}
+
+	auto secret_entry = GetSecret(context, secret_name);
+	if (secret_entry) {
+		// secret found - read data
+		auto kv_secret = dynamic_cast<const KeyValueSecret *>(secret_entry->secret.get());
+		if (!kv_secret) {
+			throw BinderException("Secret with name \"%s\" is not a key-value secret", secret_name);
+		}
+		string new_connection_info;
+
+		new_connection_info += AddConnectionOption(*kv_secret, "user");
+		new_connection_info += AddConnectionOption(*kv_secret, "password");
+		new_connection_info += AddConnectionOption(*kv_secret, "host");
+		new_connection_info += AddConnectionOption(*kv_secret, "port");
+		new_connection_info += AddConnectionOption(*kv_secret, "ssl");
+		new_connection_info += AddConnectionOption(*kv_secret, "catalog");
+		new_connection_info += AddConnectionOption(*kv_secret, "dbname");
+		new_connection_info += AddConnectionOption(*kv_secret, "database");
+
+		connection_string = new_connection_info + connection_string;
+	} else if (explicit_secret) {
+		// secret not found and one was explicitly provided - throw an error
+		throw BinderException("Secret with name \"%s\" not found", secret_name);
+	}
+	return connection_string;
+}
+
+AltertableCatalog::~AltertableCatalog() = default;
+
+void AltertableCatalog::Initialize(bool load_builtin) {
+}
+
+optional_ptr<CatalogEntry> AltertableCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
+	auto &altertable_transaction = AltertableTransaction::Get(transaction.GetContext(), *this);
+	auto entry = schemas.GetEntry(altertable_transaction, info.schema);
+	if (entry) {
+		switch (info.on_conflict) {
+		case OnCreateConflict::REPLACE_ON_CONFLICT: {
+			DropInfo try_drop;
+			try_drop.type = CatalogType::SCHEMA_ENTRY;
+			try_drop.name = info.schema;
+			try_drop.if_not_found = OnEntryNotFound::RETURN_NULL;
+			try_drop.cascade = false;
+			schemas.DropEntry(altertable_transaction, try_drop);
+			break;
+		}
+		case OnCreateConflict::IGNORE_ON_CONFLICT:
+			return entry;
+		case OnCreateConflict::ERROR_ON_CONFLICT:
+		default:
+			throw BinderException("Failed to create schema \"%s\": schema already exists", info.schema);
+		}
+	}
+	return schemas.CreateSchema(altertable_transaction, info);
+}
+
+void AltertableCatalog::DropSchema(ClientContext &context, DropInfo &info) {
+	auto &altertable_transaction = AltertableTransaction::Get(context, *this);
+	return schemas.DropEntry(altertable_transaction, info);
+}
+
+void AltertableCatalog::ScanSchemas(ClientContext &context, std::function<void(SchemaCatalogEntry &)> callback) {
+	auto &altertable_transaction = AltertableTransaction::Get(context, *this);
+	schemas.Scan(altertable_transaction, [&](CatalogEntry &schema) { callback(schema.Cast<AltertableSchemaEntry>()); });
+}
+
+optional_ptr<SchemaCatalogEntry> AltertableCatalog::LookupSchema(CatalogTransaction transaction,
+                                                                 const EntryLookupInfo &schema_lookup,
+                                                                 OnEntryNotFound if_not_found) {
+	auto schema_name = schema_lookup.GetEntryName();
+	auto &altertable_transaction = AltertableTransaction::Get(transaction.GetContext(), *this);
+
+	// In Flight SQL, we might not have the exact same "temporary schema" concept exposed in the same way,
+	// but we'll keep the structure for now.
+
+	auto entry = schemas.GetEntry(altertable_transaction, schema_name);
+	if (!entry && if_not_found != OnEntryNotFound::RETURN_NULL) {
+		throw BinderException("Schema with name \"%s\" not found", schema_name);
+	}
+	return reinterpret_cast<SchemaCatalogEntry *>(entry.get());
+}
+
+bool AltertableCatalog::InMemory() {
+	return false;
+}
+
+string AltertableCatalog::GetDBPath() {
+	return attach_path;
+}
+
+DatabaseSize AltertableCatalog::GetDatabaseSize(ClientContext &context) {
+	// Flight SQL doesn't have a standard way to get database size.
+	// We'll return 0 for now or implement a custom command if Altertable supports it.
+	DatabaseSize size;
+	size.free_blocks = 0;
+	size.total_blocks = 0;
+	size.used_blocks = 0;
+	size.wal_size = 0;
+	size.block_size = 0;
+	size.bytes = 0;
+	return size;
+}
+
+void AltertableCatalog::ClearCache() {
+	schemas.ClearEntries();
+}
+
+// Altertable handles all compute server-side - these operations are not supported locally
+// Use altertable_execute() to run DDL/DML statements on the remote server
+
+PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                       LogicalCreateTable &op, PhysicalOperator &plan) {
+	if (access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot create table in read-only Altertable database");
+	}
+	auto &insert =
+	    planner.Make<AltertablePhysicalInsert>(op, *this, op.schema, std::move(op.info), op.estimated_cardinality);
+	insert.children.push_back(plan);
+	return insert;
+}
+
+PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
+	if (access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot insert into read-only Altertable database");
+	}
+	if (!plan) {
+		throw BinderException("INSERT DEFAULT VALUES is not supported for Altertable attached tables yet");
+	}
+	if (op.return_chunk) {
+		throw BinderException("INSERT ... RETURNING is not supported for Altertable attached tables yet");
+	}
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
+		throw BinderException("INSERT ON CONFLICT is not supported for Altertable attached tables yet");
+	}
+	if (!op.column_index_map.empty()) {
+		plan = planner.ResolveDefaultsProjection(op, *plan);
+	}
+	auto &insert =
+	    planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality, op.return_chunk);
+	insert.children.push_back(*plan);
+	return insert;
+}
+
+PhysicalOperator &AltertableCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                LogicalDelete &op, PhysicalOperator &plan) {
+	throw BinderException("DELETE from Altertable attached tables is not supported by DuckDB's row-id write path yet; "
+	                      "use altertable_execute() to forward a remote DELETE statement");
+}
+
+PhysicalOperator &AltertableCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner,
+                                                LogicalUpdate &op, PhysicalOperator &plan) {
+	throw BinderException("UPDATE of Altertable attached tables is not supported by DuckDB's row-id write path yet; "
+	                      "use altertable_execute() to forward a remote UPDATE statement");
+}
+
+} // namespace duckdb

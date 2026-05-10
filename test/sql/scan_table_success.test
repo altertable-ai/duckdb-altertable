@@ -1,0 +1,46 @@
+# name: test/sql/scan_table_success.test
+# description: altertable_scan and altertable_scan_pushdown against an existing table
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS scan_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('scan_db', 'DROP TABLE IF EXISTS __sqllogic_scan_ok')
+
+statement ok
+CALL altertable_execute('scan_db', 'CREATE TABLE __sqllogic_scan_ok (k INTEGER, v VARCHAR)')
+
+statement ok
+CALL altertable_execute('scan_db', 'INSERT INTO __sqllogic_scan_ok VALUES (1, ''a''), (2, ''b'')')
+
+# Direct table functions (same DSN as ATTACH)
+query IT
+SELECT k, v FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
+----
+1	a
+2	b
+
+query IT
+SELECT k, v FROM altertable_scan_pushdown('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
+----
+1	a
+2	b
+
+statement ok
+CALL altertable_execute('scan_db', 'DROP TABLE __sqllogic_scan_ok')
+
+statement ok
+DETACH scan_db
