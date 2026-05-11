@@ -140,7 +140,8 @@ SourceResultType AltertablePhysicalInsert::GetDataInternal(ExecutionContext &con
 AltertablePhysicalExecuteUpdate::AltertablePhysicalExecuteUpdate(PhysicalPlan &physical_plan,
                                                                  AltertableCatalog &catalog_p, string sql_p,
                                                                  idx_t estimated_cardinality)
-    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, estimated_cardinality),
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType(LogicalTypeId::BIGINT)},
+                       estimated_cardinality),
       catalog(catalog_p), sql(std::move(sql_p)) {
 }
 

@@ -315,7 +315,7 @@ private:
 					// names/types stays in sync with GetColumnBindings().
 					select_list.push_back("1");
 					result.names.push_back("__altertable_virtual");
-					result.types.push_back(column_id.IsRowIdColumn() ? LogicalType::ROW_TYPE : LogicalType::BIGINT);
+					result.types.push_back(LogicalType(LogicalTypeId::BIGINT));
 					return;
 				}
 				auto col_idx = column_id.GetPrimaryIndex();
@@ -522,7 +522,7 @@ class LogicalAltertableExecuteUpdate : public LogicalExtensionOperator {
 public:
 	LogicalAltertableExecuteUpdate(AltertableCatalog &catalog_p, string sql_p)
 	    : catalog(catalog_p), sql(std::move(sql_p)) {
-		types.emplace_back(LogicalType::BIGINT);
+		types.emplace_back(LogicalTypeId::BIGINT);
 	}
 
 	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
@@ -549,7 +549,7 @@ public:
 
 protected:
 	void ResolveTypes() override {
-		types.emplace_back(LogicalType::BIGINT);
+		types.emplace_back(LogicalTypeId::BIGINT);
 	}
 
 private:
