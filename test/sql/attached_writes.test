@@ -27,7 +27,18 @@ statement ok
 CALL altertable_execute('write_db', 'DROP TABLE IF EXISTS __attached_large_insert')
 
 statement ok
+CALL altertable_execute('write_db', 'DROP TABLE IF EXISTS __attached_remote_insert_src')
+
+statement ok
+CALL altertable_execute('write_db', 'DROP TABLE IF EXISTS __attached_remote_insert_dst')
+
+statement ok
 CREATE TABLE write_db.main.__attached_writes (id INTEGER, name VARCHAR)
+
+query II
+EXPLAIN INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
+----
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
@@ -45,8 +56,13 @@ SELECT id, name FROM write_db.main.__attached_writes ORDER BY id
 statement ok
 ALTER TABLE write_db.main.__attached_writes ADD COLUMN score DOUBLE
 
+query II
+EXPLAIN INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
+----
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+
 statement ok
-INSERT INTO write_db.main.__attached_writes (id, name, score) VALUES (4, 'delta', 4.5)
+INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
 
 query ITR
 SELECT id, name, score FROM write_db.main.__attached_writes WHERE id = 4
@@ -74,6 +90,29 @@ SELECT COUNT(*), MAX(id) FROM write_db.main.__attached_large_insert
 ----
 3000	2999
 
+statement ok
+CREATE TABLE write_db.main.__attached_remote_insert_src (id INTEGER, name VARCHAR)
+
+statement ok
+CREATE TABLE write_db.main.__attached_remote_insert_dst (id INTEGER, name VARCHAR)
+
+statement ok
+INSERT INTO write_db.main.__attached_remote_insert_src VALUES (10, 'ten'), (20, 'twenty'), (30, 'thirty')
+
+query II
+EXPLAIN INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
+----
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+
+statement ok
+INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
+
+query IT
+SELECT id, name FROM write_db.main.__attached_remote_insert_dst ORDER BY id
+----
+20	twenty
+30	thirty
+
 statement error
 UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1
 ----
@@ -86,6 +125,12 @@ DELETE from Altertable attached tables is not supported
 
 statement ok
 DROP TABLE write_db.main.__attached_large_insert
+
+statement ok
+DROP TABLE write_db.main.__attached_remote_insert_dst
+
+statement ok
+DROP TABLE write_db.main.__attached_remote_insert_src
 
 statement ok
 DROP TABLE write_db.main.__attached_ctas

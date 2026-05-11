@@ -29,6 +29,9 @@ private:
 	//! Try to replace a fully Altertable-backed query with one remote SQL scan
 	static bool TryPushWholeQuery(ClientContext &context, unique_ptr<LogicalOperator> &plan);
 
+	//! Try to replace a remote-only INSERT ... SELECT with one remote update
+	static bool TryPushRemoteInsert(ClientContext &context, unique_ptr<LogicalOperator> &plan);
+
 	//! Try to push the limit into the Altertable bind data
 	static void PushLimitIntoScan(LogicalOperator &scan_op, idx_t limit_value);
 };

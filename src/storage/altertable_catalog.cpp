@@ -11,6 +11,7 @@
 #include "storage/altertable_transaction.hpp"
 #include "altertable_utils.hpp"
 #include "altertable_physical.hpp"
+#include "duckdb/execution/operator/scan/physical_column_data_scan.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
@@ -210,6 +211,87 @@ PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, P
 	return insert;
 }
 
+static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
+	string result;
+	if (!catalog.GetRemoteCatalog().empty()) {
+		result += AltertableUtils::QuoteAltertableIdentifier(catalog.GetRemoteCatalog()) + ".";
+	}
+	result += AltertableUtils::QuoteAltertableIdentifier(table.schema.name) + ".";
+	result += AltertableUtils::QuoteAltertableIdentifier(table.name);
+	return result;
+}
+
+static string AltertableInsertColumnList(const vector<string> &column_names) {
+	vector<string> columns;
+	for (auto &name : column_names) {
+		columns.push_back(AltertableUtils::QuoteAltertableIdentifier(name));
+	}
+	return "(" + StringUtil::Join(columns, ", ") + ")";
+}
+
+static bool BuildInsertColumnMapping(LogicalInsert &insert, AltertableTableEntry &target_table,
+                                     idx_t source_column_count, vector<string> &column_names,
+                                     vector<idx_t> &source_indices) {
+	if (insert.column_index_map.empty()) {
+		if (source_column_count != target_table.GetColumns().LogicalColumnCount()) {
+			return false;
+		}
+		column_names = target_table.altertable_names;
+		for (idx_t col = 0; col < column_names.size(); col++) {
+			source_indices.push_back(col);
+		}
+		return true;
+	}
+
+	for (idx_t table_col = 0; table_col < insert.column_index_map.size(); table_col++) {
+		auto source_idx = insert.column_index_map[PhysicalIndex(table_col)];
+		if (source_idx == DConstants::INVALID_INDEX) {
+			continue;
+		}
+		if (table_col >= target_table.altertable_names.size() || source_idx >= source_column_count) {
+			return false;
+		}
+		column_names.push_back(target_table.altertable_names[table_col]);
+		source_indices.push_back(source_idx);
+	}
+	return !column_names.empty();
+}
+
+static bool TryBuildValuesInsert(LogicalInsert &insert, PhysicalOperator &plan, AltertableCatalog &target_catalog,
+                                 AltertableTableEntry &target_table, string &sql) {
+	if (plan.type != PhysicalOperatorType::COLUMN_DATA_SCAN) {
+		return false;
+	}
+	auto &scan = plan.Cast<PhysicalColumnDataScan>();
+	if (!scan.collection || scan.collection->Count() == 0) {
+		return false;
+	}
+
+	vector<string> column_names;
+	vector<idx_t> source_indices;
+	if (!BuildInsertColumnMapping(insert, target_table, scan.collection->ColumnCount(), column_names, source_indices)) {
+		return false;
+	}
+
+	vector<string> values;
+	for (auto &chunk : scan.collection->Chunks()) {
+		for (idx_t row = 0; row < chunk.size(); row++) {
+			vector<string> rendered_row;
+			for (auto source_idx : source_indices) {
+				rendered_row.push_back(chunk.GetValue(source_idx, row).ToSQLString());
+			}
+			values.push_back("(" + StringUtil::Join(rendered_row, ", ") + ")");
+		}
+	}
+	if (values.empty()) {
+		return false;
+	}
+
+	sql = "INSERT INTO " + AltertableInsertTarget(target_catalog, target_table) + " " +
+	      AltertableInsertColumnList(column_names) + " VALUES " + StringUtil::Join(values, ", ");
+	return true;
+}
+
 PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
 	if (access_mode == AccessMode::READ_ONLY) {
@@ -224,11 +306,18 @@ PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, Physical
 	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
 		throw BinderException("INSERT ON CONFLICT is not supported for Altertable attached tables yet");
 	}
+
+	auto &target_table = op.table.Cast<AltertableTableEntry>();
+	string values_insert_sql;
+	if (TryBuildValuesInsert(op, *plan, *this, target_table, values_insert_sql)) {
+		return planner.Make<AltertablePhysicalExecuteUpdate>(*this, std::move(values_insert_sql),
+		                                                     op.estimated_cardinality);
+	}
+
 	if (!op.column_index_map.empty()) {
 		plan = planner.ResolveDefaultsProjection(op, *plan);
 	}
-	auto &insert =
-	    planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality, op.return_chunk);
+	auto &insert = planner.Make<AltertablePhysicalInsert>(op.types, *this, op.table, op.estimated_cardinality);
 	insert.children.push_back(*plan);
 	return insert;
 }
