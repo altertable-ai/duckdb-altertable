@@ -10,7 +10,7 @@ namespace duckdb {
 class AltertablePhysicalInsert : public PhysicalOperator {
 public:
 	AltertablePhysicalInsert(PhysicalPlan &physical_plan, vector<LogicalType> types, AltertableCatalog &catalog,
-	                         TableCatalogEntry &table, idx_t estimated_cardinality, bool return_chunk);
+	                         TableCatalogEntry &table, idx_t estimated_cardinality);
 	AltertablePhysicalInsert(PhysicalPlan &physical_plan, LogicalOperator &op, AltertableCatalog &catalog,
 	                         SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info,
 	                         idx_t estimated_cardinality);
@@ -50,7 +50,29 @@ private:
 	optional_ptr<SchemaCatalogEntry> schema;
 	unique_ptr<BoundCreateTableInfo> create_info;
 	vector<string> column_names;
-	bool return_chunk;
+};
+
+class AltertablePhysicalExecuteUpdate : public PhysicalOperator {
+public:
+	AltertablePhysicalExecuteUpdate(PhysicalPlan &physical_plan, AltertableCatalog &catalog, string sql,
+	                                idx_t estimated_cardinality);
+
+public:
+	string GetName() const override {
+		return "ALTERTABLE_EXECUTE_UPDATE";
+	}
+	InsertionOrderPreservingMap<string> ParamsToString() const override;
+
+	unique_ptr<GlobalSourceState> GetGlobalSourceState(ClientContext &context) const override;
+	SourceResultType GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+	                                 OperatorSourceInput &input) const override;
+	bool IsSource() const override {
+		return true;
+	}
+
+private:
+	AltertableCatalog &catalog;
+	string sql;
 };
 
 } // namespace duckdb

@@ -14,11 +14,17 @@ public:
 
 class AltertableInsertLocalState : public LocalSinkState {};
 
+class AltertableExecuteUpdateGlobalState : public GlobalSourceState {
+public:
+	bool executed = false;
+	int64_t affected_rows = 0;
+};
+
 AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, vector<LogicalType> types,
                                                    AltertableCatalog &catalog_p, TableCatalogEntry &table_p,
-                                                   idx_t estimated_cardinality, bool return_chunk_p)
+                                                   idx_t estimated_cardinality)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::INSERT, std::move(types), estimated_cardinality),
-      catalog(catalog_p), table(table_p), return_chunk(return_chunk_p) {
+      catalog(catalog_p), table(table_p) {
 	for (auto &column : table->GetColumns().Logical()) {
 		column_names.push_back(column.Name());
 	}
@@ -28,7 +34,7 @@ AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, 
                                                    AltertableCatalog &catalog_p, SchemaCatalogEntry &schema_p,
                                                    unique_ptr<BoundCreateTableInfo> info, idx_t estimated_cardinality)
     : PhysicalOperator(physical_plan, PhysicalOperatorType::INSERT, op.types, estimated_cardinality),
-      catalog(catalog_p), schema(schema_p), create_info(std::move(info)), return_chunk(false) {
+      catalog(catalog_p), schema(schema_p), create_info(std::move(info)) {
 	for (auto &column : create_info->Base().columns.Logical()) {
 		column_names.push_back(column.Name());
 	}
@@ -128,6 +134,39 @@ SourceResultType AltertablePhysicalInsert::GetDataInternal(ExecutionContext &con
 	insert_gstate.emitted_count = true;
 	chunk.SetCardinality(1);
 	chunk.SetValue(0, 0, Value::BIGINT(NumericCast<int64_t>(insert_gstate.insert_count)));
+	return SourceResultType::FINISHED;
+}
+
+AltertablePhysicalExecuteUpdate::AltertablePhysicalExecuteUpdate(PhysicalPlan &physical_plan,
+                                                                 AltertableCatalog &catalog_p, string sql_p,
+                                                                 idx_t estimated_cardinality)
+    : PhysicalOperator(physical_plan, PhysicalOperatorType::EXTENSION, {LogicalType::BIGINT}, estimated_cardinality),
+      catalog(catalog_p), sql(std::move(sql_p)) {
+}
+
+InsertionOrderPreservingMap<string> AltertablePhysicalExecuteUpdate::ParamsToString() const {
+	InsertionOrderPreservingMap<string> result;
+	result["Query"] = sql;
+	return result;
+}
+
+unique_ptr<GlobalSourceState> AltertablePhysicalExecuteUpdate::GetGlobalSourceState(ClientContext &context) const {
+	return make_uniq<AltertableExecuteUpdateGlobalState>();
+}
+
+SourceResultType AltertablePhysicalExecuteUpdate::GetDataInternal(ExecutionContext &context, DataChunk &chunk,
+                                                                  OperatorSourceInput &input) const {
+	auto &state = input.global_state.Cast<AltertableExecuteUpdateGlobalState>();
+	if (state.executed) {
+		return SourceResultType::FINISHED;
+	}
+
+	auto &transaction = AltertableTransaction::Get(context.client, catalog);
+	state.affected_rows = transaction.ExecuteUpdate(sql);
+	state.executed = true;
+
+	chunk.SetCardinality(1);
+	chunk.SetValue(0, 0, Value::BIGINT(state.affected_rows));
 	return SourceResultType::FINISHED;
 }
 

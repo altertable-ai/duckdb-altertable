@@ -1,5 +1,7 @@
 #include "altertable_optimizer.hpp"
+#include "altertable_physical.hpp"
 #include "altertable_scanner.hpp"
+#include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_columnref_expression.hpp"
@@ -15,10 +17,14 @@
 #include "duckdb/planner/operator/logical_aggregate.hpp"
 #include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/planner/operator/logical_insert.hpp"
 #include "duckdb/planner/operator/logical_limit.hpp"
 #include "duckdb/planner/operator/logical_order.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
+#include "storage/altertable_catalog.hpp"
+#include "storage/altertable_table_entry.hpp"
 
 namespace duckdb {
 
@@ -157,12 +163,6 @@ public:
 	}
 
 private:
-	idx_t next_alias = 0;
-
-	string NextAlias() {
-		return "__altertable_" + to_string(next_alias++);
-	}
-
 	static string OutputName(Expression &expr, idx_t index) {
 		auto alias = expr.GetAlias();
 		return alias.empty() ? "column" + to_string(index) : alias;
@@ -243,6 +243,12 @@ private:
 		default:
 			throw NotImplementedException("Unsupported expression for Altertable pushdown");
 		}
+	}
+
+	idx_t next_alias = 0;
+
+	string NextAlias() {
+		return "__altertable_" + to_string(next_alias++);
 	}
 
 	string RenderAggregate(Expression &expr, const unordered_map<string, string> &bindings) {
@@ -512,6 +518,104 @@ private:
 	}
 };
 
+class LogicalAltertableExecuteUpdate : public LogicalExtensionOperator {
+public:
+	LogicalAltertableExecuteUpdate(AltertableCatalog &catalog_p, string sql_p)
+	    : catalog(catalog_p), sql(std::move(sql_p)) {
+		types.emplace_back(LogicalType::BIGINT);
+	}
+
+	PhysicalOperator &CreatePlan(ClientContext &context, PhysicalPlanGenerator &planner) override {
+		return planner.Make<AltertablePhysicalExecuteUpdate>(catalog, sql, estimated_cardinality);
+	}
+
+	string GetName() const override {
+		return "ALTERTABLE_EXECUTE_UPDATE";
+	}
+
+	InsertionOrderPreservingMap<string> ParamsToString() const override {
+		InsertionOrderPreservingMap<string> result;
+		result["Query"] = sql;
+		return result;
+	}
+
+	bool SupportSerialization() const override {
+		return false;
+	}
+
+	idx_t EstimateCardinality(ClientContext &context) override {
+		return 1;
+	}
+
+protected:
+	void ResolveTypes() override {
+		types.emplace_back(LogicalType::BIGINT);
+	}
+
+private:
+	AltertableCatalog &catalog;
+	string sql;
+};
+
+static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
+	string result;
+	if (!catalog.GetRemoteCatalog().empty()) {
+		result += AltertableUtils::QuoteAltertableIdentifier(catalog.GetRemoteCatalog()) + ".";
+	}
+	result += AltertableUtils::QuoteAltertableIdentifier(table.schema.name) + ".";
+	result += AltertableUtils::QuoteAltertableIdentifier(table.name);
+	return result;
+}
+
+static string AltertableInsertColumnList(const AltertableTableEntry &table) {
+	vector<string> columns;
+	for (auto &name : table.altertable_names) {
+		columns.push_back(AltertableUtils::QuoteAltertableIdentifier(name));
+	}
+	return "(" + StringUtil::Join(columns, ", ") + ")";
+}
+
+bool AltertableLimitPushdownOptimizer::TryPushRemoteInsert(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
+	if (plan->type != LogicalOperatorType::LOGICAL_INSERT) {
+		return false;
+	}
+	auto &insert = plan->Cast<LogicalInsert>();
+	if (insert.table.catalog.GetCatalogType() != "altertable") {
+		return false;
+	}
+	if (insert.children.size() != 1 || insert.return_chunk ||
+	    insert.on_conflict_info.action_type != OnConflictAction::THROW) {
+		return false;
+	}
+	if (!insert.column_index_map.empty()) {
+		return false;
+	}
+
+	AltertableRemoteSQLBuilder builder(context);
+	AltertableRemotePlan source_plan;
+	if (!builder.TryBuild(*insert.children[0], source_plan)) {
+		return false;
+	}
+	if (!source_plan.source_bind || !source_plan.source_bind->GetCatalog()) {
+		return false;
+	}
+
+	auto &target_catalog = insert.table.catalog.Cast<AltertableCatalog>();
+	if (source_plan.source_bind->GetCatalog().get() != &target_catalog) {
+		return false;
+	}
+
+	auto &target_table = insert.table.Cast<AltertableTableEntry>();
+	if (source_plan.names.size() != target_table.GetColumns().LogicalColumnCount()) {
+		return false;
+	}
+
+	string sql = "INSERT INTO " + AltertableInsertTarget(target_catalog, target_table) + " " +
+	             AltertableInsertColumnList(target_table) + " " + source_plan.sql;
+	plan = make_uniq<LogicalAltertableExecuteUpdate>(target_catalog, std::move(sql));
+	return true;
+}
+
 bool AltertableLimitPushdownOptimizer::TryPushWholeQuery(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
 	AltertableRemoteSQLBuilder builder(context);
 	AltertableRemotePlan remote_plan;
@@ -581,6 +685,9 @@ static bool CanPushLimitThrough(LogicalOperatorType type) {
 
 void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context, unique_ptr<LogicalOperator> &op,
                                                          optional_idx parent_limit) {
+	if (TryPushRemoteInsert(context, op)) {
+		return;
+	}
 	if (TryPushWholeQuery(context, op)) {
 		return;
 	}
