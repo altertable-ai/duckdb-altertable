@@ -67,6 +67,32 @@ ORDER BY region_id
 ----
 physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
 
+# Pushed-down results must match the equivalent remote altertable_query
+query I
+SELECT COUNT(*) FROM (
+    (SELECT region_id, COUNT(*), AVG(weight), COUNT(score_a)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     WHERE is_synthetic = false AND is_holdout = false
+     GROUP BY region_id
+     ORDER BY region_id)
+    EXCEPT
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(*), AVG(weight), COUNT(score_a) FROM main.__sqllogic_widget_metrics WHERE is_synthetic = false AND is_holdout = false GROUP BY region_id ORDER BY region_id'))
+    UNION ALL
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(*), AVG(weight), COUNT(score_a) FROM main.__sqllogic_widget_metrics WHERE is_synthetic = false AND is_holdout = false GROUP BY region_id ORDER BY region_id'))
+    EXCEPT
+    (SELECT region_id, COUNT(*), AVG(weight), COUNT(score_a)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     WHERE is_synthetic = false AND is_holdout = false
+     GROUP BY region_id
+     ORDER BY region_id)
+)
+----
+0
+
 query II
 EXPLAIN SELECT approx_quantile(score_a, 0.5) FROM agg_pushdown_db.main.__sqllogic_widget_metrics GROUP BY region_id
 ----
@@ -76,6 +102,27 @@ query II
 EXPLAIN SELECT approx_quantile(score_a, 0.5) FROM agg_pushdown_db.main.__sqllogic_widget_metrics GROUP BY region_id
 ----
 physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
+
+query I
+SELECT COUNT(*) FROM (
+    (SELECT approx_quantile(score_a, 0.5)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     GROUP BY region_id)
+    EXCEPT
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT approx_quantile(score_a, 0.5) FROM main.__sqllogic_widget_metrics GROUP BY region_id'))
+    UNION ALL
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT approx_quantile(score_a, 0.5) FROM main.__sqllogic_widget_metrics GROUP BY region_id'))
+    EXCEPT
+    (SELECT approx_quantile(score_a, 0.5)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     GROUP BY region_id)
+)
+----
+0
 
 # ---------------------------------------------------------------------------
 # DISTINCT aggregates: full query pushed remotely (no local group/agg operators)
@@ -95,6 +142,29 @@ query II
 EXPLAIN SELECT region_id, COUNT(DISTINCT device_id) FROM agg_pushdown_db.main.__sqllogic_widget_metrics GROUP BY region_id
 ----
 physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
+
+query I
+SELECT COUNT(*) FROM (
+    (SELECT region_id, COUNT(DISTINCT device_id)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     GROUP BY region_id
+     ORDER BY region_id)
+    EXCEPT
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(DISTINCT device_id) FROM main.__sqllogic_widget_metrics GROUP BY region_id ORDER BY region_id'))
+    UNION ALL
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(DISTINCT device_id) FROM main.__sqllogic_widget_metrics GROUP BY region_id ORDER BY region_id'))
+    EXCEPT
+    (SELECT region_id, COUNT(DISTINCT device_id)
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     GROUP BY region_id
+     ORDER BY region_id)
+)
+----
+0
 
 # ---------------------------------------------------------------------------
 # Mixed aggregate dashboard query: single remote scan, no local aggregation
@@ -165,6 +235,57 @@ WHERE is_synthetic = false
 GROUP BY region_id
 ----
 physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
+
+query I
+SELECT COUNT(*) FROM (
+    (SELECT
+        region_id,
+        COUNT(*) AS row_count,
+        COUNT(DISTINCT device_id) AS device_count,
+        COUNT(DISTINCT event_date) AS distinct_days,
+        AVG(weight) AS avg_weight,
+        AVG(score_a) AS score_a_mean,
+        approx_quantile(score_a, 0.50) AS score_a_q50,
+        COUNT(score_a) AS score_a_n,
+        AVG(score_b) AS score_b_mean,
+        approx_quantile(score_b, 0.50) AS score_b_q50,
+        COUNT(score_b) AS score_b_n
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     WHERE is_synthetic = false
+       AND is_holdout = false
+       AND event_date BETWEEN DATE '2024-06-01' AND DATE '2024-06-30'
+     GROUP BY region_id
+     ORDER BY region_id)
+    EXCEPT
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(*) AS row_count, COUNT(DISTINCT device_id) AS device_count, COUNT(DISTINCT event_date) AS distinct_days, AVG(weight) AS avg_weight, AVG(score_a) AS score_a_mean, approx_quantile(score_a, 0.50) AS score_a_q50, COUNT(score_a) AS score_a_n, AVG(score_b) AS score_b_mean, approx_quantile(score_b, 0.50) AS score_b_q50, COUNT(score_b) AS score_b_n FROM main.__sqllogic_widget_metrics WHERE is_synthetic = false AND is_holdout = false AND event_date BETWEEN DATE ''2024-06-01'' AND DATE ''2024-06-30'' GROUP BY region_id ORDER BY region_id'))
+    UNION ALL
+    (SELECT * FROM altertable_query(
+        'agg_pushdown_db',
+        'SELECT region_id, COUNT(*) AS row_count, COUNT(DISTINCT device_id) AS device_count, COUNT(DISTINCT event_date) AS distinct_days, AVG(weight) AS avg_weight, AVG(score_a) AS score_a_mean, approx_quantile(score_a, 0.50) AS score_a_q50, COUNT(score_a) AS score_a_n, AVG(score_b) AS score_b_mean, approx_quantile(score_b, 0.50) AS score_b_q50, COUNT(score_b) AS score_b_n FROM main.__sqllogic_widget_metrics WHERE is_synthetic = false AND is_holdout = false AND event_date BETWEEN DATE ''2024-06-01'' AND DATE ''2024-06-30'' GROUP BY region_id ORDER BY region_id'))
+    EXCEPT
+    (SELECT
+        region_id,
+        COUNT(*) AS row_count,
+        COUNT(DISTINCT device_id) AS device_count,
+        COUNT(DISTINCT event_date) AS distinct_days,
+        AVG(weight) AS avg_weight,
+        AVG(score_a) AS score_a_mean,
+        approx_quantile(score_a, 0.50) AS score_a_q50,
+        COUNT(score_a) AS score_a_n,
+        AVG(score_b) AS score_b_mean,
+        approx_quantile(score_b, 0.50) AS score_b_q50,
+        COUNT(score_b) AS score_b_n
+     FROM agg_pushdown_db.main.__sqllogic_widget_metrics
+     WHERE is_synthetic = false
+       AND is_holdout = false
+       AND event_date BETWEEN DATE '2024-06-01' AND DATE '2024-06-30'
+     GROUP BY region_id
+     ORDER BY region_id)
+)
+----
+0
 
 statement ok
 CALL altertable_execute('agg_pushdown_db', 'DROP TABLE __sqllogic_widget_metrics')
