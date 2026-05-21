@@ -160,7 +160,7 @@ static unique_ptr<GlobalTableFunctionState> AltertableInitGlobalState(ClientCont
 		result->projection_ids = input.projection_ids;
 		for (const auto &col_idx : input.column_ids) {
 			if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
-				result->scanned_types.emplace_back(LogicalType::ROW_TYPE);
+				result->scanned_types.emplace_back(LogicalType(LogicalTypeId::BIGINT));
 			} else if (col_idx < bind_data.types.size()) {
 				result->scanned_types.push_back(bind_data.types[col_idx]);
 			}
