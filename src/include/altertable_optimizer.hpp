@@ -24,7 +24,7 @@ public:
 private:
 	//! Recursively traverse the plan and push down limits
 	static void OptimizeRecursive(ClientContext &context, unique_ptr<LogicalOperator> &op,
-	                              optional_idx parent_limit = optional_idx());
+	                              optional_idx parent_limit = optional_idx(), bool is_root = false);
 
 	//! Try to replace a fully Altertable-backed query with one remote SQL scan
 	static bool TryPushWholeQuery(ClientContext &context, unique_ptr<LogicalOperator> &plan);

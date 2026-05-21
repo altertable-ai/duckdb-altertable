@@ -249,11 +249,6 @@ static void ExtractPlanOutputTypes(LogicalOperator &op, vector<LogicalType> &typ
 	}
 }
 
-static void ExtractPlanOutput(LogicalOperator &op, vector<string> &names, vector<LogicalType> &types) {
-	ExtractPlanOutputTypes(op, types);
-	ExtractPlanOutputNames(op, names);
-}
-
 static bool PlanUsesOnlyAltertableScans(LogicalOperator &op, vector<AltertableBindData *> &sources) {
 	switch (op.type) {
 	case LogicalOperatorType::LOGICAL_GET: {
@@ -998,11 +993,15 @@ static bool CanPushLimitThrough(LogicalOperatorType type) {
 }
 
 void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context, unique_ptr<LogicalOperator> &op,
-                                                         optional_idx parent_limit) {
-	if (TryPushRemoteInsert(context, op)) {
+                                                         optional_idx parent_limit, bool is_root) {
+	if (is_root && TryPushRemoteInsert(context, op)) {
 		return;
 	}
-	if (TryPushWholeQuery(context, op)) {
+	// Whole-query pushdown must only run at the plan root. Running it on nested
+	// scans (e.g. under a MARK join for large IN lists) replaces the scan with a
+	// remote query that returns final projected columns while parent operators
+	// still expect join/filter columns from the scan output.
+	if (is_root && TryPushWholeQuery(context, op)) {
 		return;
 	}
 
@@ -1036,12 +1035,15 @@ void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context,
 
 	// Recursively process children
 	for (auto &child : op->children) {
-		OptimizeRecursive(context, child, limit_for_children);
+		// EXPLAIN wraps the real plan; pushdown must run on that child, not only on
+		// the outermost operator (which would skip INSERT/SELECT under EXPLAIN).
+		const bool child_is_root = op->type == LogicalOperatorType::LOGICAL_EXPLAIN;
+		OptimizeRecursive(context, child, limit_for_children, child_is_root);
 	}
 }
 
 void AltertableLimitPushdownOptimizer::Optimize(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-	OptimizeRecursive(input.context, plan, optional_idx());
+	OptimizeRecursive(input.context, plan, optional_idx(), true);
 }
 
 OptimizerExtension CreateAltertableLimitPushdownOptimizer() {
