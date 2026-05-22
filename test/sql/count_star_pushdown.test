@@ -34,12 +34,17 @@ SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_h
 query II
 EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
 ----
-physical_plan	<REGEX>:.*COUNT.*
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
 
 query II
 EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
 ----
-physical_plan	<!REGEX>:.*UNGROUPED_AGGREGATE.*
+physical_plan	<REGEX>:.*Query:.*
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits
+----
+physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
 
 query II
 SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
@@ -49,7 +54,12 @@ SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_h
 query II
 EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
 ----
-physical_plan	<REGEX>:.*COUNT.*
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
+
+query II
+EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
+----
+physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
 
 query II
 EXPLAIN SELECT COUNT(*), SUM(id) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id > 1
@@ -65,7 +75,12 @@ SELECT id, COUNT(*) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits G
 query II
 EXPLAIN SELECT id, COUNT(*) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits GROUP BY id ORDER BY id
 ----
-physical_plan	<REGEX>:.*Query:.*SELECT.*
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
+
+query II
+EXPLAIN SELECT id, COUNT(*) FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits GROUP BY id ORDER BY id
+----
+physical_plan	<!REGEX>:.*(HASH_GROUP_BY|PERFECT_HASH_GROUP_BY|UNGROUPED_AGGREGATE|PARTITIONED_AGGREGATE).*
 
 query I
 SELECT id FROM count_pushdown_db.main.__sqllogic_count_pushdown_hits WHERE id >= 1 ORDER BY id DESC LIMIT 1

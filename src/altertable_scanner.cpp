@@ -26,6 +26,7 @@ struct AltertableLocalState : public LocalTableFunctionState {
 	std::unique_ptr<arrow::flight::FlightStreamReader> reader;
 	std::shared_ptr<arrow::RecordBatch> current_batch;
 	idx_t batch_offset = 0;
+	DataChunk all_columns;
 
 	void ScanChunk(ClientContext &context, const AltertableBindData &bind_data, AltertableGlobalState &gstate,
 	               DataChunk &output);
@@ -38,6 +39,8 @@ struct AltertableGlobalState : public GlobalTableFunctionState {
 	mutable mutex lock;
 	idx_t max_threads;
 	bool used_main_thread = false;
+	vector<idx_t> projection_ids;
+	vector<LogicalType> scanned_types;
 
 	AltertableConnection &GetConnection();
 	void SetConnection(AltertableConnection connection);
@@ -45,6 +48,9 @@ struct AltertableGlobalState : public GlobalTableFunctionState {
 
 	bool TryOpenNewConnection(ClientContext &context, AltertableLocalState &lstate,
 	                          const AltertableBindData &bind_data);
+	bool UseProjectionMapping() const {
+		return !projection_ids.empty();
+	}
 	idx_t MaxThreads() const override {
 		return max_threads;
 	}
@@ -150,6 +156,16 @@ static unique_ptr<GlobalTableFunctionState> AltertableInitGlobalState(ClientCont
 		auto con = AltertableConnection::Open(bind_data.dsn);
 		result->SetConnection(std::move(con));
 	}
+	if (!input.projection_ids.empty()) {
+		result->projection_ids = input.projection_ids;
+		for (const auto &col_idx : input.column_ids) {
+			if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
+				result->scanned_types.emplace_back(LogicalType(LogicalTypeId::BIGINT));
+			} else if (col_idx < bind_data.types.size()) {
+				result->scanned_types.push_back(bind_data.types[col_idx]);
+			}
+		}
+	}
 	return std::move(result);
 }
 
@@ -251,6 +267,10 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		return nullptr;
 	}
 
+	if (gstate.UseProjectionMapping()) {
+		local_state->all_columns.Initialize(context, gstate.scanned_types);
+	}
+
 	// Construct Query - forward to Altertable for execution
 	string query;
 	if (!bind_data.sql.empty()) {
@@ -261,13 +281,16 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		query = "SELECT ";
 		bool first = true;
 
-		// Use column ids to select specific columns (projection pushdown)
+		// Use column ids to select specific columns (projection pushdown).
+		// Filter-only columns are included in column_ids for WHERE pushdown but stripped
+		// from output via projection_ids in ScanChunk (see filter_prune).
 		if (input.column_ids.empty()) {
 			query += "*";
 		} else {
 			for (auto &col_idx : input.column_ids) {
-				if (col_idx == COLUMN_IDENTIFIER_ROW_ID)
+				if (col_idx == COLUMN_IDENTIFIER_ROW_ID) {
 					continue;
+				}
 				if (!first) {
 					query += ", ";
 				}
@@ -386,10 +409,14 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		return;
 
 	// Manual copy for common types
-	output.SetCardinality(row_count);
+	auto &scan_chunk = gstate.UseProjectionMapping() ? all_columns : output;
+	if (gstate.UseProjectionMapping()) {
+		all_columns.Reset();
+	}
+	scan_chunk.SetCardinality(row_count);
 
-	for (idx_t col_idx = 0; col_idx < output.ColumnCount(); col_idx++) {
-		auto &vector = output.data[col_idx];
+	for (idx_t col_idx = 0; col_idx < scan_chunk.ColumnCount(); col_idx++) {
+		auto &vector = scan_chunk.data[col_idx];
 		auto arrow_col = batch->column(col_idx);
 
 		// Comprehensive type conversion from Arrow to DuckDB
@@ -827,6 +854,9 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			                              arrow_col->type()->ToString(), (int)arrow_col->type()->id(), col_idx);
 		}
 	}
+	if (gstate.UseProjectionMapping()) {
+		output.ReferenceColumns(all_columns, gstate.projection_ids);
+	}
 	batch_offset += row_count;
 }
 
@@ -870,6 +900,7 @@ AltertableScanFunction::AltertableScanFunction()
 	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;
+	filter_prune = true;
 }
 
 AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
@@ -880,6 +911,7 @@ AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
 	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;
+	filter_prune = true;
 }
 
 bool IsAltertableScanTableFunction(const TableFunction &function) {

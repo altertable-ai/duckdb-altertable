@@ -36,5 +36,13 @@ Instructions for AI agents working in this repository.
 
 ## Testing
 
-- You can run the tests locally by running `make test` or by invoking the `./build/<release|debug>/test/unittest` binary directly
-- You can run a single test with `./build/<release|debug>/test/unittest <path/to/test_file.test>`
+Most integration tests in `./test/sql` use `require-env ALTERTABLE_TEST_*` and connect to a live Altertable server via `ATTACH ... TYPE ALTERTABLE`. Without those env vars set, sqllogictest **skips** them — so plain `make test` only runs a handful of offline tests (extension load, connection validation, etc.).
+
+**Prefer mock-backed testing:**
+
+- **`make test-mock`** — runs `./scripts/test_with_mock.sh`, which pulls and starts the official `altertable-mock` Docker container, exports `ALTERTABLE_TEST_HOST`, `ALTERTABLE_TEST_PORT`, `ALTERTABLE_TEST_USER`, `ALTERTABLE_TEST_PASSWORD`, and `ALTERTABLE_TEST_SSL`, then runs the full suite via `make test`. The container is stopped on exit. Requires Docker locally (CI uses a pre-started service instead).
+- **`./scripts/test_with_mock.sh path/to/test_file.test`** — same mock setup, but runs a **single** test file via `./build/release/test/unittest` (pass the path relative to the repo root, e.g. `test/sql/aggregate_pushdown.test`).
+
+Build first with `GEN=ninja make` before running either command.
+
+**Manual / no Docker:** export the `ALTERTABLE_TEST_*` variables yourself (see `docs/README.md`) and run `make test` or `./build/release/test/unittest <path/to/test_file.test>`.

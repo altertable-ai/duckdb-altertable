@@ -54,6 +54,37 @@ SELECT col_c FROM test_db.main.test_filter_proj WHERE col_b > 1 AND col_a = 'sec
 ----
 beta
 
+# Typed filter-only columns: BOOLEAN and DATE filtered, DOUBLE/VARCHAR projected
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE IF EXISTS test_filter_proj_typed')
+
+statement ok
+CALL altertable_execute('test_db', 'CREATE TABLE test_filter_proj_typed (amount DOUBLE, label VARCHAR, active BOOLEAN, event_day DATE)')
+
+statement ok
+CALL altertable_execute('test_db', 'INSERT INTO test_filter_proj_typed VALUES (10.5, ''alpha'', true, DATE ''2024-03-15''), (20.0, ''beta'', false, DATE ''2024-06-01''), (30.0, ''gamma'', false, DATE ''2024-11-30'')')
+
+# Test 5: BOOLEAN filter-only column with DOUBLE projection
+query R
+SELECT amount FROM test_db.main.test_filter_proj_typed WHERE active = false AND label = 'beta'
+----
+20.0
+
+# Test 6: DATE filter-only column with VARCHAR projection
+query T
+SELECT label FROM test_db.main.test_filter_proj_typed WHERE event_day BETWEEN DATE '2024-06-01' AND DATE '2024-12-31' AND label = 'gamma'
+----
+gamma
+
+# Test 7: BOOLEAN and DATE filter-only columns with DOUBLE projection
+query R
+SELECT amount FROM test_db.main.test_filter_proj_typed WHERE active = false AND event_day >= DATE '2024-11-01'
+----
+30.0
+
 # Cleanup
 statement ok
 CALL altertable_execute('test_db', 'DROP TABLE test_filter_proj')
+
+statement ok
+CALL altertable_execute('test_db', 'DROP TABLE test_filter_proj_typed')

@@ -1,6 +1,18 @@
 #include "altertable_optimizer.hpp"
 #include "altertable_physical.hpp"
 #include "altertable_scanner.hpp"
+#include "duckdb/catalog/catalog.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/parser.hpp"
+#include "duckdb/parser/query_node/select_node.hpp"
+#include "duckdb/parser/query_node/set_operation_node.hpp"
+#include "duckdb/parser/statement/explain_statement.hpp"
+#include "duckdb/parser/statement/select_statement.hpp"
+#include "duckdb/parser/tableref/basetableref.hpp"
+#include "duckdb/parser/tableref/joinref.hpp"
+#include "duckdb/parser/tableref/subqueryref.hpp"
+#include "duckdb/planner/bound_result_modifier.hpp"
+#include "duckdb/planner/expression/bound_between_expression.hpp"
 #include "duckdb/planner/operator/logical_extension_operator.hpp"
 #include "duckdb/planner/expression/bound_aggregate_expression.hpp"
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
@@ -148,6 +160,295 @@ static string GetPredicateFromFilter(TableFilter &filter, const string &col_name
 	}
 }
 
+static string OutputExpressionName(Expression &expr, idx_t index) {
+	auto alias = expr.GetAlias();
+	return alias.empty() ? "column" + to_string(index) : alias;
+}
+
+static void ExtractPlanOutputNames(LogicalOperator &op, vector<string> &names) {
+	switch (op.type) {
+	case LogicalOperatorType::LOGICAL_PROJECTION: {
+		auto &projection = op.Cast<LogicalProjection>();
+		for (idx_t i = 0; i < projection.expressions.size(); i++) {
+			names.push_back(OutputExpressionName(*projection.expressions[i], i));
+		}
+		return;
+	}
+	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+		auto &aggregate = op.Cast<LogicalAggregate>();
+		idx_t index = 0;
+		for (auto &group : aggregate.groups) {
+			names.push_back(OutputExpressionName(*group, index++));
+		}
+		for (auto &expr : aggregate.expressions) {
+			names.push_back(OutputExpressionName(*expr, index++));
+		}
+		return;
+	}
+	case LogicalOperatorType::LOGICAL_FILTER:
+	case LogicalOperatorType::LOGICAL_LIMIT:
+	case LogicalOperatorType::LOGICAL_ORDER_BY:
+		ExtractPlanOutputNames(*op.children[0], names);
+		return;
+	case LogicalOperatorType::LOGICAL_GET: {
+		auto &get = op.Cast<LogicalGet>();
+		if (!get.GetColumnIds().empty()) {
+			for (auto &col_id : get.GetColumnIds()) {
+				if (col_id.IsRowIdColumn() || col_id.IsVirtualColumn()) {
+					continue;
+				}
+				names.push_back(get.names[col_id.GetPrimaryIndex()]);
+			}
+			return;
+		}
+		names = get.names;
+		return;
+	}
+	default:
+		throw NotImplementedException("Unsupported operator for Altertable output name extraction");
+	}
+}
+
+static void ExtractPlanOutputTypes(LogicalOperator &op, vector<LogicalType> &types) {
+	types = op.types;
+	if (!types.empty()) {
+		return;
+	}
+	switch (op.type) {
+	case LogicalOperatorType::LOGICAL_AGGREGATE_AND_GROUP_BY: {
+		auto &aggregate = op.Cast<LogicalAggregate>();
+		for (auto &group : aggregate.groups) {
+			types.push_back(group->return_type);
+		}
+		for (auto &expr : aggregate.expressions) {
+			types.push_back(expr->return_type);
+		}
+		return;
+	}
+	case LogicalOperatorType::LOGICAL_FILTER:
+	case LogicalOperatorType::LOGICAL_LIMIT:
+	case LogicalOperatorType::LOGICAL_ORDER_BY:
+		ExtractPlanOutputTypes(*op.children[0], types);
+		return;
+	case LogicalOperatorType::LOGICAL_GET: {
+		auto &get = op.Cast<LogicalGet>();
+		if (!get.GetColumnIds().empty()) {
+			for (auto &col_id : get.GetColumnIds()) {
+				if (col_id.IsRowIdColumn() || col_id.IsVirtualColumn()) {
+					continue;
+				}
+				types.push_back(get.returned_types[col_id.GetPrimaryIndex()]);
+			}
+			return;
+		}
+		types = get.returned_types;
+		return;
+	}
+	default:
+		throw NotImplementedException("Unsupported operator for Altertable output type extraction");
+	}
+}
+
+static bool PlanUsesOnlyAltertableScans(LogicalOperator &op, vector<AltertableBindData *> &sources) {
+	switch (op.type) {
+	case LogicalOperatorType::LOGICAL_GET: {
+		if (!AltertableLimitPushdownOptimizer::IsAltertableScan(op)) {
+			return false;
+		}
+		auto &bind_data = op.Cast<LogicalGet>().bind_data->Cast<AltertableBindData>();
+		if (!bind_data.sql.empty()) {
+			return false;
+		}
+		sources.push_back(&bind_data);
+		return true;
+	}
+	case LogicalOperatorType::LOGICAL_EXPRESSION_GET:
+	case LogicalOperatorType::LOGICAL_DUMMY_SCAN:
+		return false;
+	default:
+		if (op.children.empty()) {
+			return false;
+		}
+		for (auto &child : op.children) {
+			if (!PlanUsesOnlyAltertableScans(*child, sources)) {
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
+static bool AltertableSourcesCompatible(const vector<AltertableBindData *> &sources) {
+	if (sources.empty()) {
+		return false;
+	}
+	for (idx_t i = 1; i < sources.size(); i++) {
+		if (sources[i]->dsn != sources[0]->dsn || sources[i]->attach_path != sources[0]->attach_path) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref);
+
+static bool RewriteAltertableQueryNode(ClientContext &context, QueryNode &node) {
+	for (auto &cte : node.cte_map.map) {
+		if (!RewriteAltertableQueryNode(context, *cte.second->query->node)) {
+			return false;
+		}
+	}
+	switch (node.type) {
+	case QueryNodeType::SELECT_NODE: {
+		auto &select = node.Cast<SelectNode>();
+		if (select.from_table && !RewriteAltertableTableRef(context, *select.from_table)) {
+			return false;
+		}
+		return true;
+	}
+	case QueryNodeType::SET_OPERATION_NODE: {
+		auto &setop = node.Cast<SetOperationNode>();
+		for (auto &child : setop.children) {
+			if (!RewriteAltertableQueryNode(context, *child)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref) {
+	switch (ref.type) {
+	case TableReferenceType::BASE_TABLE: {
+		auto &base = ref.Cast<BaseTableRef>();
+		auto catalog = Catalog::GetCatalogEntry(context, base.catalog_name);
+		if (!catalog || catalog->GetCatalogType() != "altertable") {
+			return false;
+		}
+		auto &altertable_catalog = catalog->Cast<AltertableCatalog>();
+		base.catalog_name = altertable_catalog.GetRemoteCatalog();
+		return true;
+	}
+	case TableReferenceType::JOIN: {
+		auto &join = ref.Cast<JoinRef>();
+		return RewriteAltertableTableRef(context, *join.left) && RewriteAltertableTableRef(context, *join.right);
+	}
+	case TableReferenceType::SUBQUERY: {
+		auto &subquery = ref.Cast<SubqueryRef>();
+		return RewriteAltertableQueryNode(context, *subquery.subquery->node);
+	}
+	default:
+		return false;
+	}
+}
+
+static string NormalizeDeparsedSQL(string sql) {
+	return StringUtil::Replace(std::move(sql), "count_star()", "COUNT(*)");
+}
+
+static bool QueryContainsOffset(const string &query) {
+	return StringUtil::Contains(StringUtil::Lower(query), " offset ");
+}
+
+static unique_ptr<SelectStatement> ExtractAltertableSelectStatement(ClientContext &context) {
+	const auto &query = context.GetCurrentQuery();
+	if (query.empty()) {
+		return nullptr;
+	}
+	Parser parser;
+	parser.ParseQuery(query);
+	if (parser.statements.size() != 1) {
+		return nullptr;
+	}
+	auto copied = parser.statements[0]->Copy();
+	if (copied->type == StatementType::EXPLAIN_STATEMENT) {
+		auto &explain = copied->Cast<ExplainStatement>();
+		if (!explain.stmt || explain.stmt->type != StatementType::SELECT_STATEMENT) {
+			return nullptr;
+		}
+		auto select = unique_ptr_cast<SQLStatement, SelectStatement>(explain.stmt->Copy());
+		return select;
+	}
+	if (copied->type != StatementType::SELECT_STATEMENT) {
+		return nullptr;
+	}
+	return unique_ptr_cast<SQLStatement, SelectStatement>(std::move(copied));
+}
+
+static bool ReplacePlanWithRemoteScan(ClientContext &context, unique_ptr<LogicalOperator> &plan,
+                                      AltertableBindData &source, string sql, vector<string> names,
+                                      vector<LogicalType> types) {
+	auto output_bindings = plan->GetColumnBindings();
+	idx_t table_index = 0;
+	if (!output_bindings.empty()) {
+		table_index = output_bindings[0].table_index;
+	}
+
+	auto bind_data = make_uniq<AltertableBindData>(context);
+	bind_data->dsn = source.dsn;
+	bind_data->attach_path = source.attach_path;
+	bind_data->catalog_name = source.catalog_name;
+	bind_data->schema_name = source.schema_name;
+	bind_data->table_name = source.table_name;
+	bind_data->sql = std::move(sql);
+	bind_data->names = names;
+	bind_data->types = types;
+	bind_data->max_threads = 1;
+	if (source.GetCatalog()) {
+		bind_data->SetCatalog(*source.GetCatalog());
+	}
+
+	auto function = AltertableScanFunction();
+	function.projection_pushdown = false;
+	function.filter_pushdown = false;
+	auto logical_get =
+	    make_uniq<LogicalGet>(table_index, function, std::move(bind_data), std::move(types), std::move(names));
+	for (idx_t col = 0; col < logical_get->returned_types.size(); col++) {
+		logical_get->AddColumnId(col);
+	}
+	plan = std::move(logical_get);
+	return true;
+}
+
+static bool TryPushDeparsedQuery(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
+	if (plan->type == LogicalOperatorType::LOGICAL_EXPLAIN) {
+		return false;
+	}
+	if (QueryContainsOffset(context.GetCurrentQuery())) {
+		return false;
+	}
+	vector<AltertableBindData *> sources;
+	if (!PlanUsesOnlyAltertableScans(*plan, sources) || !AltertableSourcesCompatible(sources)) {
+		return false;
+	}
+
+	auto select = ExtractAltertableSelectStatement(context);
+	if (!select || !RewriteAltertableQueryNode(context, *select->node)) {
+		return false;
+	}
+
+	vector<string> names;
+	vector<LogicalType> types;
+	try {
+		types = plan->types;
+		if (types.empty()) {
+			ExtractPlanOutputTypes(*plan, types);
+		}
+		ExtractPlanOutputNames(*plan, names);
+	} catch (NotImplementedException &) {
+		return false;
+	}
+	if (types.empty() || names.empty() || types.size() != names.size()) {
+		return false;
+	}
+
+	return ReplacePlanWithRemoteScan(context, plan, *sources[0], NormalizeDeparsedSQL(select->ToString()),
+	                                 std::move(names), std::move(types));
+}
+
 class AltertableRemoteSQLBuilder {
 public:
 	explicit AltertableRemoteSQLBuilder(ClientContext &context) {
@@ -240,6 +541,16 @@ private:
 			}
 			throw NotImplementedException("Unsupported operator for Altertable pushdown");
 		}
+		case ExpressionClass::BOUND_BETWEEN: {
+			auto &between = expr.Cast<BoundBetweenExpression>();
+			string lower_op = between.lower_inclusive ? " >= " : " > ";
+			string upper_op = between.upper_inclusive ? " <= " : " < ";
+			auto input = RenderExpression(*between.input, bindings);
+			return "(" + input + lower_op + RenderExpression(*between.lower, bindings) + " AND " + input + upper_op +
+			       RenderExpression(*between.upper, bindings) + ")";
+		}
+		case ExpressionClass::BOUND_AGGREGATE:
+			return RenderAggregate(expr, bindings);
 		default:
 			throw NotImplementedException("Unsupported expression for Altertable pushdown");
 		}
@@ -251,19 +562,46 @@ private:
 		return "__altertable_" + to_string(next_alias++);
 	}
 
+	string RenderAggregateOrderBy(const BoundOrderModifier &order_bys, const unordered_map<string, string> &bindings) {
+		string result;
+		for (idx_t i = 0; i < order_bys.orders.size(); i++) {
+			if (i > 0) {
+				result += ", ";
+			}
+			result += RenderExpression(*order_bys.orders[i].expression, bindings);
+			result += order_bys.orders[i].GetOrderModifier();
+		}
+		return result;
+	}
+
 	string RenderAggregate(Expression &expr, const unordered_map<string, string> &bindings) {
 		auto &aggregate = expr.Cast<BoundAggregateExpression>();
-		if (aggregate.filter || aggregate.order_bys || aggregate.aggr_type != AggregateType::NON_DISTINCT) {
-			throw NotImplementedException("Unsupported aggregate modifier for Altertable pushdown");
-		}
 		if (aggregate.function.name == "count_star") {
 			return "COUNT(*)";
+		}
+
+		string result = aggregate.function.name;
+		result += "(";
+		if (aggregate.IsDistinct()) {
+			result += "DISTINCT ";
 		}
 		vector<string> children;
 		for (auto &child : aggregate.children) {
 			children.push_back(RenderExpression(*child, bindings));
 		}
-		return StringUtil::Upper(aggregate.function.name) + "(" + StringUtil::Join(children, ", ") + ")";
+		result += StringUtil::Join(children, ", ");
+		if (aggregate.order_bys && !aggregate.order_bys->orders.empty()) {
+			if (aggregate.children.empty()) {
+				result += ") WITHIN GROUP (";
+			}
+			result += " ORDER BY ";
+			result += RenderAggregateOrderBy(*aggregate.order_bys, bindings);
+		}
+		result += ")";
+		if (aggregate.filter) {
+			result += " FILTER (WHERE " + RenderExpression(*aggregate.filter, bindings) + ")";
+		}
+		return result;
 	}
 
 	AltertableRemotePlan Build(LogicalOperator &op) {
@@ -617,6 +955,10 @@ bool AltertableLimitPushdownOptimizer::TryPushRemoteInsert(ClientContext &contex
 }
 
 bool AltertableLimitPushdownOptimizer::TryPushWholeQuery(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
+	if (TryPushDeparsedQuery(context, plan)) {
+		return true;
+	}
+
 	AltertableRemoteSQLBuilder builder(context);
 	AltertableRemotePlan remote_plan;
 	if (!builder.TryBuild(*plan, remote_plan)) {
@@ -626,41 +968,8 @@ bool AltertableLimitPushdownOptimizer::TryPushWholeQuery(ClientContext &context,
 		return false;
 	}
 
-	// Preserve the binder's table index so parent operators (joins, subqueries, etc.)
-	// still resolve column references. LogicalGet(0, ...) breaks bindings like #[1.0].
-	auto output_bindings = plan->GetColumnBindings();
-	idx_t table_index = 0;
-	if (!output_bindings.empty()) {
-		table_index = output_bindings[0].table_index;
-	}
-
-	auto &source = *remote_plan.source_bind;
-	auto bind_data = make_uniq<AltertableBindData>(context);
-	bind_data->dsn = source.dsn;
-	bind_data->attach_path = source.attach_path;
-	bind_data->catalog_name = source.catalog_name;
-	bind_data->schema_name = source.schema_name;
-	bind_data->table_name = source.table_name;
-	bind_data->sql = remote_plan.sql;
-	bind_data->names = remote_plan.names;
-	bind_data->types = remote_plan.types;
-	bind_data->max_threads = 1;
-	if (source.GetCatalog()) {
-		bind_data->SetCatalog(*source.GetCatalog());
-	}
-
-	auto function = AltertableScanFunction();
-	function.projection_pushdown = false;
-	function.filter_pushdown = false;
-	auto logical_get = make_uniq<LogicalGet>(table_index, function, std::move(bind_data), std::move(remote_plan.types),
-	                                         std::move(remote_plan.names));
-	// Empty column_ids make LogicalGet::ResolveTypes add only one column (GetAnyColumn),
-	// which breaks multi-column pushed queries and leaves a single #[n.0] binding.
-	for (idx_t col = 0; col < logical_get->returned_types.size(); col++) {
-		logical_get->AddColumnId(col);
-	}
-	plan = std::move(logical_get);
-	return true;
+	return ReplacePlanWithRemoteScan(context, plan, *remote_plan.source_bind, std::move(remote_plan.sql),
+	                                 std::move(remote_plan.names), std::move(remote_plan.types));
 }
 
 //! Check if the limit can safely be pushed through this operator type
@@ -684,11 +993,15 @@ static bool CanPushLimitThrough(LogicalOperatorType type) {
 }
 
 void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context, unique_ptr<LogicalOperator> &op,
-                                                         optional_idx parent_limit) {
-	if (TryPushRemoteInsert(context, op)) {
+                                                         optional_idx parent_limit, bool is_root) {
+	if (is_root && TryPushRemoteInsert(context, op)) {
 		return;
 	}
-	if (TryPushWholeQuery(context, op)) {
+	// Whole-query pushdown must only run at the plan root. Running it on nested
+	// scans (e.g. under a MARK join for large IN lists) replaces the scan with a
+	// remote query that returns final projected columns while parent operators
+	// still expect join/filter columns from the scan output.
+	if (is_root && TryPushWholeQuery(context, op)) {
 		return;
 	}
 
@@ -722,12 +1035,15 @@ void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context,
 
 	// Recursively process children
 	for (auto &child : op->children) {
-		OptimizeRecursive(context, child, limit_for_children);
+		// EXPLAIN wraps the real plan; pushdown must run on that child, not only on
+		// the outermost operator (which would skip INSERT/SELECT under EXPLAIN).
+		const bool child_is_root = op->type == LogicalOperatorType::LOGICAL_EXPLAIN;
+		OptimizeRecursive(context, child, limit_for_children, child_is_root);
 	}
 }
 
 void AltertableLimitPushdownOptimizer::Optimize(OptimizerExtensionInput &input, unique_ptr<LogicalOperator> &plan) {
-	OptimizeRecursive(input.context, plan, optional_idx());
+	OptimizeRecursive(input.context, plan, optional_idx(), true);
 }
 
 OptimizerExtension CreateAltertableLimitPushdownOptimizer() {
