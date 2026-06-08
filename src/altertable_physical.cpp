@@ -133,7 +133,7 @@ SourceResultType AltertablePhysicalInsert::GetDataInternal(ExecutionContext &con
 	}
 	insert_gstate.emitted_count = true;
 	chunk.SetCardinality(1);
-	chunk.SetValue(0, 0, Value::BIGINT(NumericCast<int64_t>(insert_gstate.insert_count)));
+	chunk.data[0].SetValue(0, Value::BIGINT(NumericCast<int64_t>(insert_gstate.insert_count)));
 	return SourceResultType::FINISHED;
 }
 
@@ -167,7 +167,7 @@ SourceResultType AltertablePhysicalExecuteUpdate::GetDataInternal(ExecutionConte
 	state.executed = true;
 
 	chunk.SetCardinality(1);
-	chunk.SetValue(0, 0, Value::BIGINT(state.affected_rows));
+	chunk.data[0].SetValue(0, Value::BIGINT(state.affected_rows));
 	return SourceResultType::FINISHED;
 }
 

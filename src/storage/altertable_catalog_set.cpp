@@ -1,5 +1,6 @@
 #include "storage/altertable_catalog_set.hpp"
 #include "storage/altertable_transaction.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "storage/altertable_schema_entry.hpp"
 
@@ -82,9 +83,9 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 		drop_query += " IF EXISTS ";
 	}
 	if (!info.schema.empty()) {
-		drop_query += KeywordHelper::WriteQuoted(info.schema, '"') + ".";
+		drop_query += SQLIdentifier(info.schema) + ".";
 	}
-	drop_query += KeywordHelper::WriteQuoted(info.name, '"');
+	drop_query += SQLIdentifier(info.name);
 	if (info.cascade) {
 		drop_query += " CASCADE";
 	}

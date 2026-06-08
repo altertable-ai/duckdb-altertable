@@ -1,4 +1,5 @@
 #include "altertable_utils.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 #include "storage/altertable_schema_entry.hpp"
 #include "storage/altertable_transaction.hpp"
 
@@ -375,7 +376,10 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 }
 
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
-	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+	if (!KeywordHelper::RequiresQuotes(text, false)) {
+		return text;
+	}
+	return SQLQuotedIdentifier::ToString(text);
 }
 
 } // namespace duckdb
