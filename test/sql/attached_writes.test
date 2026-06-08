@@ -15,7 +15,7 @@ require-env ALTERTABLE_TEST_PASSWORD
 require-env ALTERTABLE_TEST_SSL
 
 statement ok
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS write_db (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}' AS write_db (TYPE ALTERTABLE)
 
 statement ok
 CALL altertable_execute('write_db', 'DROP TABLE IF EXISTS __attached_writes')
@@ -38,7 +38,7 @@ CREATE TABLE write_db.main.__attached_writes (id INTEGER, name VARCHAR)
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
@@ -59,7 +59,7 @@ ALTER TABLE write_db.main.__attached_writes ADD COLUMN score DOUBLE
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
@@ -102,7 +102,7 @@ INSERT INTO write_db.main.__attached_remote_insert_src VALUES (10, 'ten'), (20, 
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
@@ -113,15 +113,21 @@ SELECT id, name FROM write_db.main.__attached_remote_insert_dst ORDER BY id
 20	twenty
 30	thirty
 
-statement error
+statement ok
 UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1
-----
-UPDATE of Altertable attached tables is not supported
 
-statement error
-DELETE FROM write_db.main.__attached_writes WHERE id = 1
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 1
 ----
-DELETE from Altertable attached tables is not supported
+1	updated
+
+statement ok
+DELETE FROM write_db.main.__attached_writes WHERE id = 1
+
+query I
+SELECT COUNT(*) FROM write_db.main.__attached_writes WHERE id = 1
+----
+0
 
 statement ok
 DROP TABLE write_db.main.__attached_large_insert

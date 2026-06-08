@@ -15,7 +15,7 @@ require-env ALTERTABLE_TEST_PASSWORD
 require-env ALTERTABLE_TEST_SSL
 
 statement ok
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS scan_db (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}' AS scan_db (TYPE ALTERTABLE)
 
 statement ok
 CALL altertable_execute('scan_db', 'DROP TABLE IF EXISTS __sqllogic_scan_ok')
@@ -28,13 +28,13 @@ CALL altertable_execute('scan_db', 'INSERT INTO __sqllogic_scan_ok VALUES (1, ''
 
 # Direct table functions (same DSN as ATTACH)
 query IT
-SELECT k, v FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
+SELECT k, v FROM altertable_scan('host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
 ----
 1	a
 2	b
 
 query IT
-SELECT k, v FROM altertable_scan_pushdown('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
+SELECT k, v FROM altertable_scan_pushdown('host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') ORDER BY k
 ----
 1	a
 2	b

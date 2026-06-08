@@ -76,6 +76,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	AltertableQueryFunction query_func;
 	loader.RegisterFunction(query_func);
 
+	AltertableQueryByNameFunction query_by_name_func;
+	loader.RegisterFunction(query_by_name_func);
+
 	// Register execute function for DDL/DML statements
 	AltertableExecuteFunction execute_func;
 	loader.RegisterFunction(execute_func);

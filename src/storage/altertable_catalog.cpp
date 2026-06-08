@@ -16,6 +16,12 @@
 #include "duckdb/storage/database_size.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/query_node/delete_query_node.hpp"
+#include "duckdb/parser/query_node/insert_query_node.hpp"
+#include "duckdb/parser/query_node/update_query_node.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
@@ -191,6 +197,58 @@ DatabaseSize AltertableCatalog::GetDatabaseSize(ClientContext &context) {
 	size.block_size = 0;
 	size.bytes = 0;
 	return size;
+}
+
+static bool AltertableQueryNodeReturnsRows(const QueryNode &node) {
+	switch (node.type) {
+	case QueryNodeType::INSERT_QUERY_NODE:
+		return !node.Cast<InsertQueryNode>().returning_list.empty();
+	case QueryNodeType::UPDATE_QUERY_NODE:
+		return !node.Cast<UpdateQueryNode>().returning_list.empty();
+	case QueryNodeType::DELETE_QUERY_NODE:
+		return !node.Cast<DeleteQueryNode>().returning_list.empty();
+	default:
+		return true;
+	}
+}
+
+static void CheckAltertableReadOnlyDML(AccessMode access_mode, const QueryNode &node) {
+	if (access_mode != AccessMode::READ_ONLY) {
+		return;
+	}
+	switch (node.type) {
+	case QueryNodeType::INSERT_QUERY_NODE:
+		throw BinderException("Cannot insert into read-only Altertable database");
+	case QueryNodeType::UPDATE_QUERY_NODE:
+		throw BinderException("Cannot update read-only Altertable database");
+	case QueryNodeType::DELETE_QUERY_NODE:
+		throw BinderException("Cannot delete from read-only Altertable database");
+	default:
+		return;
+	}
+}
+
+static unique_ptr<TableRef> AltertableFunctionRef(const string &function_name, const string &catalog_name,
+                                                  const string &sql) {
+	vector<unique_ptr<ParsedExpression>> args;
+	args.push_back(make_uniq<ConstantExpression>(Value(catalog_name)));
+	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	auto func_ref = make_uniq<TableFunctionRef>();
+	func_ref->function = make_uniq<FunctionExpression>(function_name, std::move(args));
+	return std::move(func_ref);
+}
+
+unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) {
+	CheckAltertableReadOnlyDML(access_mode, *node);
+	auto sql = node->ToString();
+	if (!AltertableQueryNodeReturnsRows(*node)) {
+		return AltertableFunctionRef("altertable_execute", GetName(), sql);
+	}
+	return RemoteExecute(context, sql);
+}
+
+unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, const string &sql) {
+	return AltertableFunctionRef("altertable_query_by_name", GetName(), sql);
 }
 
 void AltertableCatalog::ClearCache() {

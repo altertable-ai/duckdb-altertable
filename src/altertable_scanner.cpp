@@ -8,6 +8,7 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
 
 #include "arrow/type.h"
 #include "arrow/ipc/dictionary.h"
@@ -191,8 +192,8 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 
 string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
 	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<ConstantFilter>();
+	case TableFilterType::LEGACY_CONSTANT_COMPARISON: {
+		auto &constant_filter = filter.Cast<LegacyConstantFilter>();
 		string op;
 		switch (constant_filter.comparison_type) {
 		case ExpressionType::COMPARE_EQUAL:
@@ -219,8 +220,8 @@ string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
 		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " " + op + " " +
 		       constant_filter.constant.ToSQLString();
 	}
-	case TableFilterType::CONJUNCTION_AND: {
-		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
+	case TableFilterType::LEGACY_CONJUNCTION_AND: {
+		auto &and_filter = filter.Cast<LegacyConjunctionAndFilter>();
 		string result;
 		for (auto &child_filter : and_filter.child_filters) {
 			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
@@ -234,8 +235,8 @@ string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
 		}
 		return result;
 	}
-	case TableFilterType::CONJUNCTION_OR: {
-		auto &or_filter = filter.Cast<ConjunctionOrFilter>();
+	case TableFilterType::LEGACY_CONJUNCTION_OR: {
+		auto &or_filter = filter.Cast<LegacyConjunctionOrFilter>();
 		string result;
 		for (auto &child_filter : or_filter.child_filters) {
 			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
@@ -249,9 +250,9 @@ string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
 		}
 		return result;
 	}
-	case TableFilterType::IS_NULL:
+	case TableFilterType::LEGACY_IS_NULL:
 		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NULL";
-	case TableFilterType::IS_NOT_NULL:
+	case TableFilterType::LEGACY_IS_NOT_NULL:
 		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NOT NULL";
 	default:
 		return "";
@@ -309,9 +310,9 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 
 		if (input.filters) {
 			string filter_string;
-			for (auto &entry : input.filters->filters) {
-				idx_t projected_col_idx = entry.first;
-				auto &filter = *entry.second;
+			for (auto &entry : *input.filters) {
+				idx_t projected_col_idx = entry.GetIndex().GetIndex();
+				auto &filter = entry.Filter();
 
 				// Map from projected column index to original table column index
 				// When filters are pushed down with projection, the filter column indices
@@ -423,7 +424,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		switch (arrow_col->type()->id()) {
 		case arrow::Type::BOOL: {
 			auto bool_array = std::static_pointer_cast<arrow::BooleanArray>(arrow_col);
-			auto data = FlatVector::GetData<bool>(vector);
+			auto data = FlatVector::GetDataMutable<bool>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (bool_array->IsValid(batch_offset + i)) {
 					data[i] = bool_array->Value(batch_offset + i);
@@ -435,7 +436,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::INT8: {
 			auto int_array = std::static_pointer_cast<arrow::Int8Array>(arrow_col);
-			auto data = FlatVector::GetData<int8_t>(vector);
+			auto data = FlatVector::GetDataMutable<int8_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -447,7 +448,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::INT16: {
 			auto int_array = std::static_pointer_cast<arrow::Int16Array>(arrow_col);
-			auto data = FlatVector::GetData<int16_t>(vector);
+			auto data = FlatVector::GetDataMutable<int16_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -459,7 +460,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::INT32: {
 			auto int_array = std::static_pointer_cast<arrow::Int32Array>(arrow_col);
-			auto data = FlatVector::GetData<int32_t>(vector);
+			auto data = FlatVector::GetDataMutable<int32_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -471,7 +472,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::INT64: {
 			auto int_array = std::static_pointer_cast<arrow::Int64Array>(arrow_col);
-			auto data = FlatVector::GetData<int64_t>(vector);
+			auto data = FlatVector::GetDataMutable<int64_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -483,7 +484,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::UINT8: {
 			auto int_array = std::static_pointer_cast<arrow::UInt8Array>(arrow_col);
-			auto data = FlatVector::GetData<uint8_t>(vector);
+			auto data = FlatVector::GetDataMutable<uint8_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -495,7 +496,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::UINT16: {
 			auto int_array = std::static_pointer_cast<arrow::UInt16Array>(arrow_col);
-			auto data = FlatVector::GetData<uint16_t>(vector);
+			auto data = FlatVector::GetDataMutable<uint16_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -507,7 +508,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::UINT32: {
 			auto int_array = std::static_pointer_cast<arrow::UInt32Array>(arrow_col);
-			auto data = FlatVector::GetData<uint32_t>(vector);
+			auto data = FlatVector::GetDataMutable<uint32_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -519,7 +520,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::UINT64: {
 			auto int_array = std::static_pointer_cast<arrow::UInt64Array>(arrow_col);
-			auto data = FlatVector::GetData<uint64_t>(vector);
+			auto data = FlatVector::GetDataMutable<uint64_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (int_array->IsValid(batch_offset + i)) {
 					data[i] = int_array->Value(batch_offset + i);
@@ -531,7 +532,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::FLOAT: {
 			auto float_array = std::static_pointer_cast<arrow::FloatArray>(arrow_col);
-			auto data = FlatVector::GetData<float>(vector);
+			auto data = FlatVector::GetDataMutable<float>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (float_array->IsValid(batch_offset + i)) {
 					data[i] = float_array->Value(batch_offset + i);
@@ -543,7 +544,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::DOUBLE: {
 			auto double_array = std::static_pointer_cast<arrow::DoubleArray>(arrow_col);
-			auto data = FlatVector::GetData<double>(vector);
+			auto data = FlatVector::GetDataMutable<double>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (double_array->IsValid(batch_offset + i)) {
 					data[i] = double_array->Value(batch_offset + i);
@@ -559,7 +560,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			// This can happen when information_schema says UUID but Arrow returns STRING
 			if (vector.GetType() == LogicalType::UUID) {
 				// Parse UUID string and write as INT128
-				auto data = FlatVector::GetData<hugeint_t>(vector);
+				auto data = FlatVector::GetDataMutable<hugeint_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (str_array->IsValid(batch_offset + i)) {
 						string uuid_str = str_array->GetString(batch_offset + i);
@@ -591,7 +592,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 				}
 			} else {
 				// Normal VARCHAR handling
-				auto data = FlatVector::GetData<string_t>(vector);
+				auto data = FlatVector::GetDataMutable<string_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (str_array->IsValid(batch_offset + i)) {
 						string val = str_array->GetString(batch_offset + i);
@@ -605,7 +606,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::LARGE_STRING: {
 			auto str_array = std::static_pointer_cast<arrow::LargeStringArray>(arrow_col);
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (str_array->IsValid(batch_offset + i)) {
 					string val = str_array->GetString(batch_offset + i);
@@ -618,7 +619,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::BINARY: {
 			auto bin_array = std::static_pointer_cast<arrow::BinaryArray>(arrow_col);
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (bin_array->IsValid(batch_offset + i)) {
 					auto view = bin_array->GetView(batch_offset + i);
@@ -631,7 +632,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::LARGE_BINARY: {
 			auto bin_array = std::static_pointer_cast<arrow::LargeBinaryArray>(arrow_col);
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (bin_array->IsValid(batch_offset + i)) {
 					auto view = bin_array->GetView(batch_offset + i);
@@ -644,7 +645,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::DATE32: {
 			auto date_array = std::static_pointer_cast<arrow::Date32Array>(arrow_col);
-			auto data = FlatVector::GetData<date_t>(vector);
+			auto data = FlatVector::GetDataMutable<date_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (date_array->IsValid(batch_offset + i)) {
 					// Arrow DATE32 is days since Unix epoch
@@ -659,7 +660,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		}
 		case arrow::Type::DATE64: {
 			auto date_array = std::static_pointer_cast<arrow::Date64Array>(arrow_col);
-			auto data = FlatVector::GetData<date_t>(vector);
+			auto data = FlatVector::GetDataMutable<date_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (date_array->IsValid(batch_offset + i)) {
 					// Arrow DATE64 is milliseconds since Unix epoch
@@ -676,7 +677,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		case arrow::Type::TIMESTAMP: {
 			auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(arrow_col);
 			auto ts_type = std::static_pointer_cast<arrow::TimestampType>(arrow_col->type());
-			auto data = FlatVector::GetData<timestamp_t>(vector);
+			auto data = FlatVector::GetDataMutable<timestamp_t>(vector);
 
 			// Get the time unit to convert to microseconds (DuckDB's native format)
 			auto unit = ts_type->unit();
@@ -711,7 +712,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		case arrow::Type::TIME32: {
 			auto time_array = std::static_pointer_cast<arrow::Time32Array>(arrow_col);
 			auto time_type = std::static_pointer_cast<arrow::Time32Type>(arrow_col->type());
-			auto data = FlatVector::GetData<dtime_t>(vector);
+			auto data = FlatVector::GetDataMutable<dtime_t>(vector);
 
 			for (idx_t i = 0; i < row_count; i++) {
 				if (time_array->IsValid(batch_offset + i)) {
@@ -734,7 +735,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		case arrow::Type::TIME64: {
 			auto time_array = std::static_pointer_cast<arrow::Time64Array>(arrow_col);
 			auto time_type = std::static_pointer_cast<arrow::Time64Type>(arrow_col->type());
-			auto data = FlatVector::GetData<dtime_t>(vector);
+			auto data = FlatVector::GetDataMutable<dtime_t>(vector);
 
 			for (idx_t i = 0; i < row_count; i++) {
 				if (time_array->IsValid(batch_offset + i)) {
@@ -757,7 +758,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		case arrow::Type::FIXED_SIZE_BINARY: {
 			// Handle as BLOB
 			auto fixed_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(arrow_col);
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 			for (idx_t i = 0; i < row_count; i++) {
 				if (fixed_array->IsValid(batch_offset + i)) {
 					auto view = fixed_array->GetView(batch_offset + i);
@@ -774,7 +775,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			//   1-4  → INT16,  5-9  → INT32,  10-18 → INT64,  19-38 → INT128
 			switch (vector.GetType().InternalType()) {
 			case PhysicalType::INT16: {
-				auto data = FlatVector::GetData<int16_t>(vector);
+				auto data = FlatVector::GetDataMutable<int16_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (dec_array->IsValid(batch_offset + i)) {
 						auto view = dec_array->GetView(batch_offset + i);
@@ -787,7 +788,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 				break;
 			}
 			case PhysicalType::INT32: {
-				auto data = FlatVector::GetData<int32_t>(vector);
+				auto data = FlatVector::GetDataMutable<int32_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (dec_array->IsValid(batch_offset + i)) {
 						auto view = dec_array->GetView(batch_offset + i);
@@ -800,7 +801,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 				break;
 			}
 			case PhysicalType::INT64: {
-				auto data = FlatVector::GetData<int64_t>(vector);
+				auto data = FlatVector::GetDataMutable<int64_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (dec_array->IsValid(batch_offset + i)) {
 						auto view = dec_array->GetView(batch_offset + i);
@@ -813,7 +814,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 				break;
 			}
 			default: { // INT128 — precision 19-38
-				auto data = FlatVector::GetData<hugeint_t>(vector);
+				auto data = FlatVector::GetDataMutable<hugeint_t>(vector);
 				for (idx_t i = 0; i < row_count; i++) {
 					if (dec_array->IsValid(batch_offset + i)) {
 						auto view = dec_array->GetView(batch_offset + i);
@@ -834,7 +835,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 			// For DECIMAL256, convert to string representation as DuckDB doesn't natively support 256-bit decimals
 			auto dec_array = std::static_pointer_cast<arrow::Decimal256Array>(arrow_col);
 			auto dec_type = std::static_pointer_cast<arrow::Decimal256Type>(arrow_col->type());
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 
 			for (idx_t i = 0; i < row_count; i++) {
 				if (dec_array->IsValid(batch_offset + i)) {

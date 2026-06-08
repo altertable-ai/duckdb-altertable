@@ -15,5 +15,5 @@ require-env ALTERTABLE_TEST_PASSWORD
 require-env ALTERTABLE_TEST_SSL
 
 statement error
-SELECT * FROM altertable_scan('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}', 'public', 'nonexistent_table_for_connection_string_test')
+SELECT * FROM altertable_scan('host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}', 'public', 'nonexistent_table_for_connection_string_test')
 ----

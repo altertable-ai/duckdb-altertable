@@ -16,7 +16,7 @@ require-env ALTERTABLE_TEST_SSL
 
 # Test basic ATTACH with real server
 statement ok
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS altertable_db (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}' AS altertable_db (TYPE ALTERTABLE)
 
 # Test that we can see the attached database
 query I

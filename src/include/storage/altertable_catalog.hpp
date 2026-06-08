@@ -62,6 +62,18 @@ public:
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
 
+	bool Supports(RemoteCapability capability) const override {
+		switch (capability) {
+		case RemoteCapability::IS_REMOTE:
+		case RemoteCapability::EXECUTE_QUERY_NODE:
+			return true;
+		default:
+			return false;
+		}
+	}
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) override;
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, const string &sql) override;
+
 	const string &GetRemoteCatalog() const {
 		return remote_catalog;
 	}

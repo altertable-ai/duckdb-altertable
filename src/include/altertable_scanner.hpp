@@ -82,6 +82,11 @@ public:
 	AltertableQueryFunction();
 };
 
+class AltertableQueryByNameFunction : public TableFunction {
+public:
+	AltertableQueryByNameFunction();
+};
+
 class AltertableExecuteFunction : public TableFunction {
 public:
 	AltertableExecuteFunction();
