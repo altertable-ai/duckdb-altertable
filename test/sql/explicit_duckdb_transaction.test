@@ -65,4 +65,27 @@ statement ok
 CALL altertable_execute('txdb', 'DROP TABLE __attached_tx_visibility')
 
 statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __attached_tx_rollback')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __attached_tx_rollback (n INTEGER)')
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO txdb.main.__attached_tx_rollback VALUES (456)
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM txdb.main.__attached_tx_rollback
+----
+0
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __attached_tx_rollback')
+
+statement ok
 DETACH txdb

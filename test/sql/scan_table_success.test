@@ -39,6 +39,11 @@ SELECT k, v FROM altertable_scan_pushdown('host={ALTERTABLE_TEST_HOST} port={ALT
 1	a
 2	b
 
+query IT
+SELECT k, v FROM altertable_scan('host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}', 'main', '__sqllogic_scan_ok') WHERE k IN (1) ORDER BY k
+----
+1	a
+
 statement ok
 CALL altertable_execute('scan_db', 'DROP TABLE __sqllogic_scan_ok')
 

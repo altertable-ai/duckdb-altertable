@@ -18,7 +18,7 @@ AltertableTransaction::~AltertableTransaction() {
 	// connection can be returned to the pool without leaving an idle open transaction on the server.
 	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
 		try {
-			GetConnectionRaw().Execute("ROLLBACK");
+			GetConnectionRaw().ExecuteUpdate("ROLLBACK");
 		} catch (...) {
 		}
 		transaction_state = AltertableTransactionState::TRANSACTION_FINISHED;
@@ -35,13 +35,13 @@ void AltertableTransaction::Start() {
 void AltertableTransaction::Commit() {
 	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
 		transaction_state = AltertableTransactionState::TRANSACTION_FINISHED;
-		GetConnectionRaw().Execute("COMMIT");
+		GetConnectionRaw().ExecuteUpdate("COMMIT");
 	}
 }
 void AltertableTransaction::Rollback() {
 	if (transaction_state == AltertableTransactionState::TRANSACTION_STARTED) {
 		transaction_state = AltertableTransactionState::TRANSACTION_FINISHED;
-		GetConnectionRaw().Execute("ROLLBACK");
+		GetConnectionRaw().ExecuteUpdate("ROLLBACK");
 	}
 }
 
@@ -59,7 +59,7 @@ AltertableConnection &AltertableTransaction::GetConnection() {
 	if (transaction_state == AltertableTransactionState::TRANSACTION_NOT_YET_STARTED) {
 		transaction_state = AltertableTransactionState::TRANSACTION_STARTED;
 		string query = GetBeginTransactionQuery();
-		con.Execute(query);
+		con.ExecuteUpdate(query);
 	}
 	return con;
 }
@@ -78,7 +78,7 @@ unique_ptr<AltertableResult> AltertableTransaction::Query(const string &query) {
 		transaction_state = AltertableTransactionState::TRANSACTION_STARTED;
 		string transaction_start = GetBeginTransactionQuery();
 		// Execute BEGIN statement separately since DuckDB doesn't support multiple statements
-		con.Execute(transaction_start);
+		con.ExecuteUpdate(transaction_start);
 	}
 	return con.Query(query);
 }
@@ -88,7 +88,7 @@ int64_t AltertableTransaction::ExecuteUpdate(const string &query) {
 	if (transaction_state == AltertableTransactionState::TRANSACTION_NOT_YET_STARTED) {
 		transaction_state = AltertableTransactionState::TRANSACTION_STARTED;
 		string transaction_start = GetBeginTransactionQuery();
-		con.Execute(transaction_start);
+		con.ExecuteUpdate(transaction_start);
 	}
 	return con.ExecuteUpdate(query);
 }

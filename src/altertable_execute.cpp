@@ -36,6 +36,7 @@ struct AltertableExecuteBindData : public FunctionData {
 
 struct AltertableExecuteGlobalState : public GlobalTableFunctionState {
 	bool executed = false;
+	int64_t affected_rows = 0;
 };
 
 static unique_ptr<FunctionData> AltertableExecuteBind(ClientContext &context, TableFunctionBindInput &input,
@@ -70,6 +71,34 @@ static unique_ptr<FunctionData> AltertableExecuteBind(ClientContext &context, Ta
 	return std::move(result);
 }
 
+static AltertableCatalog &GetAltertableCatalogByName(ClientContext &context, const string &db_name) {
+	auto &db_manager = DatabaseManager::Get(context);
+	auto db = db_manager.GetDatabase(context, db_name);
+	if (!db) {
+		throw BinderException("Database \"%s\" not found", db_name);
+	}
+	if (db->GetCatalog().GetCatalogType() != "altertable") {
+		throw BinderException("Database \"%s\" is not an Altertable database", db_name);
+	}
+	return db->GetCatalog().Cast<AltertableCatalog>();
+}
+
+static unique_ptr<FunctionData> AltertableExecuteByNameBind(ClientContext &context, TableFunctionBindInput &input,
+                                                            vector<LogicalType> &return_types, vector<string> &names) {
+	auto result = make_uniq<AltertableExecuteBindData>();
+	result->db_name = input.inputs[0].GetValue<string>();
+	result->sql = input.inputs[1].GetValue<string>();
+
+	auto &altertable_catalog = GetAltertableCatalogByName(context, result->db_name);
+	if (altertable_catalog.access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot execute remote DML on read-only Altertable database \"%s\"", result->db_name);
+	}
+
+	names.push_back("affected_rows");
+	return_types.push_back(LogicalType::BIGINT);
+	return std::move(result);
+}
+
 static unique_ptr<GlobalTableFunctionState> AltertableExecuteInitGlobal(ClientContext &context,
                                                                         TableFunctionInitInput &input) {
 	return make_uniq<AltertableExecuteGlobalState>();
@@ -94,13 +123,36 @@ static void AltertableExecuteFunc(ClientContext &context, TableFunctionInput &da
 		db->GetCatalog().Cast<AltertableCatalog>().ClearCache();
 	}
 
+	output.data[0].Append(Value::BOOLEAN(true));
 	output.SetCardinality(1);
-	output.SetValue(0, 0, Value::BOOLEAN(true));
+}
+
+static void AltertableExecuteByNameFunc(ClientContext &context, TableFunctionInput &data, DataChunk &output) {
+	auto &bind_data = data.bind_data->Cast<AltertableExecuteBindData>();
+	auto &gstate = data.global_state->Cast<AltertableExecuteGlobalState>();
+
+	if (gstate.executed) {
+		return;
+	}
+	gstate.executed = true;
+
+	auto &altertable_catalog = GetAltertableCatalogByName(context, bind_data.db_name);
+	auto &transaction = AltertableTransaction::Get(context, altertable_catalog);
+	gstate.affected_rows = transaction.ExecuteUpdate(bind_data.sql);
+	altertable_catalog.ClearCache();
+
+	output.data[0].Append(Value::BIGINT(gstate.affected_rows));
+	output.SetCardinality(1);
 }
 
 AltertableExecuteFunction::AltertableExecuteFunction()
     : TableFunction("altertable_execute", {LogicalType::VARCHAR, LogicalType::VARCHAR}, AltertableExecuteFunc,
                     AltertableExecuteBind, AltertableExecuteInitGlobal) {
+}
+
+AltertableExecuteByNameFunction::AltertableExecuteByNameFunction()
+    : TableFunction("altertable_execute_by_name", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+                    AltertableExecuteByNameFunc, AltertableExecuteByNameBind, AltertableExecuteInitGlobal) {
 }
 
 } // namespace duckdb

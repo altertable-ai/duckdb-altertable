@@ -242,7 +242,7 @@ unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, un
 	CheckAltertableReadOnlyDML(access_mode, *node);
 	auto sql = node->ToString();
 	if (!AltertableQueryNodeReturnsRows(*node)) {
-		return AltertableFunctionRef("altertable_execute", GetName(), sql);
+		return AltertableFunctionRef("altertable_execute_by_name", GetName(), sql);
 	}
 	return RemoteExecute(context, sql);
 }

@@ -83,6 +83,9 @@ static void LoadInternal(ExtensionLoader &loader) {
 	AltertableExecuteFunction execute_func;
 	loader.RegisterFunction(execute_func);
 
+	AltertableExecuteByNameFunction execute_by_name_func;
+	loader.RegisterFunction(execute_by_name_func);
+
 	// Register secret type for credentials
 	SecretType secret_type;
 	secret_type.name = "altertable";

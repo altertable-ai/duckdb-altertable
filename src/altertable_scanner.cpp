@@ -4,11 +4,13 @@
 #include "storage/altertable_catalog.hpp"
 #include "storage/altertable_transaction.hpp"
 #include "storage/altertable_table_set.hpp"
-#include "duckdb/planner/filter/constant_filter.hpp"
-#include "duckdb/planner/filter/conjunction_filter.hpp"
-#include "duckdb/planner/filter/null_filter.hpp"
-#include "duckdb/planner/table_filter.hpp"
-#include "duckdb/planner/table_filter_set.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
+#include "duckdb/planner/expression/bound_comparison_expression.hpp"
+#include "duckdb/planner/expression/bound_conjunction_expression.hpp"
+#include "duckdb/planner/expression/bound_constant_expression.hpp"
+#include "duckdb/planner/expression/bound_function_expression.hpp"
+#include "duckdb/planner/expression/bound_operator_expression.hpp"
+#include "duckdb/planner/operator/logical_get.hpp"
 
 #include "arrow/type.h"
 #include "arrow/ipc/dictionary.h"
@@ -190,72 +192,160 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 	return true;
 }
 
-string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
-	switch (filter.filter_type) {
-	case TableFilterType::LEGACY_CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<LegacyConstantFilter>();
-		string op;
-		switch (constant_filter.comparison_type) {
-		case ExpressionType::COMPARE_EQUAL:
-			op = "=";
-			break;
-		case ExpressionType::COMPARE_GREATERTHAN:
-			op = ">";
-			break;
-		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-			op = ">=";
-			break;
-		case ExpressionType::COMPARE_LESSTHAN:
-			op = "<";
-			break;
-		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-			op = "<=";
-			break;
-		case ExpressionType::COMPARE_NOTEQUAL:
-			op = "<>";
-			break;
-		default:
-			return "";
-		}
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " " + op + " " +
-		       constant_filter.constant.ToSQLString();
-	}
-	case TableFilterType::LEGACY_CONJUNCTION_AND: {
-		auto &and_filter = filter.Cast<LegacyConjunctionAndFilter>();
-		string result;
-		for (auto &child_filter : and_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " AND ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::LEGACY_CONJUNCTION_OR: {
-		auto &or_filter = filter.Cast<LegacyConjunctionOrFilter>();
-		string result;
-		for (auto &child_filter : or_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " OR ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::LEGACY_IS_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NULL";
-	case TableFilterType::LEGACY_IS_NOT_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NOT NULL";
+static string AltertableComparisonOperator(ExpressionType type) {
+	switch (type) {
+	case ExpressionType::COMPARE_EQUAL:
+		return "=";
+	case ExpressionType::COMPARE_NOTEQUAL:
+		return "<>";
+	case ExpressionType::COMPARE_LESSTHAN:
+		return "<";
+	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		return "<=";
+	case ExpressionType::COMPARE_GREATERTHAN:
+		return ">";
+	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+		return ">=";
+	case ExpressionType::COMPARE_DISTINCT_FROM:
+		return "IS DISTINCT FROM";
+	case ExpressionType::COMPARE_NOT_DISTINCT_FROM:
+		return "IS NOT DISTINCT FROM";
 	default:
-		return "";
+		return string();
+	}
+}
+
+static bool TryRenderPushedExpression(const Expression &expr, const AltertableBindData &bind_data, string &result);
+
+static bool TryRenderColumnRef(const BoundColumnRefExpression &expr, const AltertableBindData &bind_data,
+                               string &result) {
+	auto col_idx = expr.Binding().column_index;
+	if (col_idx >= bind_data.names.size()) {
+		return false;
+	}
+	result = AltertableUtils::QuoteAltertableIdentifier(bind_data.names[col_idx]);
+	return true;
+}
+
+static bool TryRenderComparisonExpression(const Expression &expr, const AltertableBindData &bind_data, string &result) {
+	auto &comparison = expr.Cast<BoundFunctionExpression>();
+	string left;
+	string right;
+	if (!TryRenderPushedExpression(BoundComparisonExpression::Left(comparison), bind_data, left) ||
+	    !TryRenderPushedExpression(BoundComparisonExpression::Right(comparison), bind_data, right)) {
+		return false;
+	}
+	auto op = AltertableComparisonOperator(expr.GetExpressionType());
+	if (op.empty()) {
+		return false;
+	}
+	result = left + " " + op + " " + right;
+	return true;
+}
+
+static bool TryRenderConjunctionExpression(const BoundConjunctionExpression &expr, const AltertableBindData &bind_data,
+                                           string &result) {
+	string op;
+	switch (expr.GetExpressionType()) {
+	case ExpressionType::CONJUNCTION_AND:
+		op = " AND ";
+		break;
+	case ExpressionType::CONJUNCTION_OR:
+		op = " OR ";
+		break;
+	default:
+		return false;
+	}
+	for (auto &child : expr.GetChildren()) {
+		string child_result;
+		if (!TryRenderPushedExpression(*child, bind_data, child_result)) {
+			return false;
+		}
+		if (!result.empty()) {
+			result += op;
+		}
+		result += "(" + child_result + ")";
+	}
+	return !result.empty();
+}
+
+static bool TryRenderOperatorExpression(const BoundOperatorExpression &expr, const AltertableBindData &bind_data,
+                                        string &result) {
+	auto &children = expr.GetChildren();
+	switch (expr.GetExpressionType()) {
+	case ExpressionType::OPERATOR_IS_NULL:
+	case ExpressionType::OPERATOR_IS_NOT_NULL: {
+		if (children.size() != 1) {
+			return false;
+		}
+		string child;
+		if (!TryRenderPushedExpression(*children[0], bind_data, child)) {
+			return false;
+		}
+		result = child + (expr.GetExpressionType() == ExpressionType::OPERATOR_IS_NULL ? " IS NULL" : " IS NOT NULL");
+		return true;
+	}
+	case ExpressionType::COMPARE_IN: {
+		if (children.size() < 2) {
+			return false;
+		}
+		string column;
+		if (!TryRenderPushedExpression(*children[0], bind_data, column)) {
+			return false;
+		}
+		vector<string> values;
+		for (idx_t i = 1; i < children.size(); i++) {
+			string value;
+			if (!TryRenderPushedExpression(*children[i], bind_data, value)) {
+				return false;
+			}
+			values.push_back(value);
+		}
+		result = column + " IN (";
+		for (idx_t i = 0; i < values.size(); i++) {
+			if (i > 0) {
+				result += ", ";
+			}
+			result += values[i];
+		}
+		result += ")";
+		return true;
+	}
+	default:
+		return false;
+	}
+}
+
+static bool TryRenderPushedExpression(const Expression &expr, const AltertableBindData &bind_data, string &result) {
+	if (BoundComparisonExpression::IsComparison(expr)) {
+		return TryRenderComparisonExpression(expr, bind_data, result);
+	}
+	switch (expr.GetExpressionClass()) {
+	case ExpressionClass::BOUND_COLUMN_REF:
+		return TryRenderColumnRef(expr.Cast<BoundColumnRefExpression>(), bind_data, result);
+	case ExpressionClass::BOUND_CONSTANT:
+		result = expr.Cast<BoundConstantExpression>().GetValue().ToSQLString();
+		return true;
+	case ExpressionClass::BOUND_CONJUNCTION:
+		return TryRenderConjunctionExpression(expr.Cast<BoundConjunctionExpression>(), bind_data, result);
+	case ExpressionClass::BOUND_OPERATOR:
+		return TryRenderOperatorExpression(expr.Cast<BoundOperatorExpression>(), bind_data, result);
+	default:
+		return false;
+	}
+}
+
+static void AltertablePushdownComplexFilter(ClientContext &context, LogicalGet &get, FunctionData *bind_data_p,
+                                            vector<unique_ptr<Expression>> &filters) {
+	auto &bind_data = bind_data_p->Cast<AltertableBindData>();
+	for (idx_t i = 0; i < filters.size();) {
+		string predicate;
+		if (!TryRenderPushedExpression(*filters[i], bind_data, predicate)) {
+			i++;
+			continue;
+		}
+		bind_data.filter_clauses.push_back(predicate);
+		filters.erase_at(i);
 	}
 }
 
@@ -282,9 +372,7 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 		query = "SELECT ";
 		bool first = true;
 
-		// Use column ids to select specific columns (projection pushdown).
-		// Filter-only columns are included in column_ids for WHERE pushdown but stripped
-		// from output via projection_ids in ScanChunk (see filter_prune).
+		// Use column ids to select only the columns DuckDB needs in the output.
 		if (input.column_ids.empty()) {
 			query += "*";
 		} else {
@@ -308,45 +396,15 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 
 		query += " FROM " + AltertableTableReference(bind_data);
 
-		if (input.filters) {
-			string filter_string;
-			for (auto &entry : *input.filters) {
-				idx_t projected_col_idx = entry.GetIndex().GetIndex();
-				auto &filter = entry.Filter();
-
-				// Map from projected column index to original table column index
-				// When filters are pushed down with projection, the filter column indices
-				// refer to the projected columns (column_ids), not the original table
-				idx_t table_col_idx;
-				if (!input.column_ids.empty()) {
-					// Projection pushdown is active - map through column_ids
-					if (projected_col_idx >= input.column_ids.size()) {
-						throw InternalException("Filter column index %llu is out of range for column_ids (size: %llu)",
-						                        projected_col_idx, input.column_ids.size());
-					}
-					table_col_idx = input.column_ids[projected_col_idx];
-				} else {
-					// No projection pushdown - filter indices refer directly to table columns
-					table_col_idx = projected_col_idx;
-				}
-
-				if (table_col_idx >= bind_data.names.size()) {
-					throw InternalException("Table column index %llu is out of range for table columns (size: %llu)",
-					                        table_col_idx, bind_data.names.size());
-				}
-
-				string col_name = bind_data.names[table_col_idx];
-				string predicate = GetPredicateFromFilter(filter, col_name);
-				if (!predicate.empty()) {
-					if (!filter_string.empty()) {
-						filter_string += " AND ";
-					}
-					filter_string += predicate;
-				}
-			}
+		string filter_string;
+		for (auto &predicate : bind_data.filter_clauses) {
 			if (!filter_string.empty()) {
-				query += " WHERE " + filter_string;
+				filter_string += " AND ";
 			}
+			filter_string += predicate;
+		}
+		if (!filter_string.empty()) {
+			query += " WHERE " + filter_string;
 		}
 
 		if (!bind_data.limit.empty()) {
@@ -893,26 +951,24 @@ static InsertionOrderPreservingMap<string> AltertableScanToString(TableFunctionT
 	return result;
 }
 
+static void ConfigureAltertableScanFunction(TableFunction &function) {
+	function.cardinality = AltertableScanCardinality;
+	function.get_bind_info = AltertableScanGetBindInfo;
+	function.to_string = AltertableScanToString;
+	function.projection_pushdown = true;
+	function.pushdown_complex_filter = AltertablePushdownComplexFilter;
+}
+
 AltertableScanFunction::AltertableScanFunction()
     : TableFunction("altertable_scan", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
-	cardinality = AltertableScanCardinality;
-	get_bind_info = AltertableScanGetBindInfo;
-	to_string = AltertableScanToString;
-	projection_pushdown = true;
-	filter_pushdown = true;
-	filter_prune = true;
+	ConfigureAltertableScanFunction(*this);
 }
 
 AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
     : TableFunction("altertable_scan_pushdown", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
-	cardinality = AltertableScanCardinality;
-	get_bind_info = AltertableScanGetBindInfo;
-	to_string = AltertableScanToString;
-	projection_pushdown = true;
-	filter_pushdown = true;
-	filter_prune = true;
+	ConfigureAltertableScanFunction(*this);
 }
 
 bool IsAltertableScanTableFunction(const TableFunction &function) {

@@ -28,6 +28,7 @@ public:
 	string table_name;
 	string sql;
 	string limit;
+	vector<string> filter_clauses;
 	idx_t pages_approx = 0;
 
 	vector<string> names;
@@ -72,6 +73,7 @@ public:
 //! Recognize scans from ATTACH ... (TYPE ALTERTABLE) and altertable_scan(); `function.name` is not always reliable.
 bool IsAltertableScanTableFunction(const TableFunction &function);
 
+//! Compatibility alias for older users; behavior matches altertable_scan.
 class AltertableScanFunctionFilterPushdown : public TableFunction {
 public:
 	AltertableScanFunctionFilterPushdown();
@@ -90,6 +92,11 @@ public:
 class AltertableExecuteFunction : public TableFunction {
 public:
 	AltertableExecuteFunction();
+};
+
+class AltertableExecuteByNameFunction : public TableFunction {
+public:
+	AltertableExecuteByNameFunction();
 };
 
 } // namespace duckdb
