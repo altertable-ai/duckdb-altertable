@@ -14,10 +14,10 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.4
     with:
-      duckdb_version: v1.5.2
-      ci_tools_version: v1.5.2
+      duckdb_version: v1.5.4
+      ci_tools_version: v1.5.4
       extension_name: altertable
       # Arrow Flight pulls in Thrift; vcpkg's thrift port needs bison > 2.5 (brew on macOS, yum in Linux images).
       extra_toolchains: 'parser_tools'
@@ -26,10 +26,10 @@ jobs:
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5.2
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5.4
     with:
-      duckdb_version: v1.5.2
-      ci_tools_version: v1.5.2
+      duckdb_version: v1.5.4
+      ci_tools_version: v1.5.4
       extension_name: altertable
       # clang-tidy needs vcpkg (Arrow); the reusable workflow does not set up vcpkg — see extension-tidy-check.
       format_checks: "format"
