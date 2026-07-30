@@ -23,6 +23,7 @@ jobs:
       extra_toolchains: "parser_tools"
       # Extension relies on vcpkg deps that are not supported for WASM builds.
       exclude_archs: "wasm_mvp;wasm_eh;wasm_threads"
+      opt_in_archs: "linux_amd64_musl;linux_arm64_musl"
 
   code-quality-check:
     name: Code Quality Check
