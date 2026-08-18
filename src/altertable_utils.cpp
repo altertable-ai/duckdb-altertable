@@ -130,7 +130,7 @@ AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) 
 		} else if ((key == "database" || key == "dbname") && !result.has_catalog) {
 			result.catalog = value;
 			result.has_catalog = true;
-		} else if (key == "compute_size" || key == "computesize") {
+		} else if (key == "compute_size") {
 			result.compute_size = value;
 			result.has_compute_size = true;
 		}

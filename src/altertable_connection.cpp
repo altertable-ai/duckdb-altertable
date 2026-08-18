@@ -92,7 +92,7 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 		SetAltertableSessionOption(*sql_client, call_options, "catalog", config.catalog, "catalog");
 	}
 	if (!config.compute_size.empty()) {
-		SetAltertableSessionOption(*sql_client, call_options, "computeSize", config.compute_size, "compute size");
+		SetAltertableSessionOption(*sql_client, call_options, "compute_size", config.compute_size, "compute size");
 	}
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));
