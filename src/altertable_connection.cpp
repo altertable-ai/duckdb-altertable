@@ -12,6 +12,24 @@ namespace duckdb {
 
 static bool debug_altertable_print_queries = false;
 
+static void SetAltertableSessionOption(arrow::flight::sql::FlightSqlClient &sql_client,
+                                       arrow::flight::FlightCallOptions &call_options, const string &session_key,
+                                       const string &value, const string &option_label) {
+	arrow::flight::SetSessionOptionsRequest session_request;
+	session_request.session_options.emplace(session_key, value);
+	auto session_result = sql_client.SetSessionOptions(call_options, session_request);
+	if (!session_result.ok()) {
+		throw IOException("Failed to set Altertable session %s \"%s\": %s", option_label, value,
+		                  session_result.status().ToString());
+	}
+	auto set_result = session_result.ValueOrDie();
+	auto option_error = set_result.errors.find(session_key);
+	if (option_error != set_result.errors.end()) {
+		throw IOException("Failed to set Altertable session %s \"%s\": %s", option_label, value,
+		                  arrow::flight::ToString(option_error->second.value));
+	}
+}
+
 AltertableConnection::AltertableConnection(shared_ptr<OwnedAltertableConnection> connection_p)
     : connection(std::move(connection_p)) {
 }
@@ -71,19 +89,10 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 	auto sql_client = std::make_unique<arrow::flight::sql::FlightSqlClient>(std::move(flight_client));
 
 	if (!config.catalog.empty()) {
-		arrow::flight::SetSessionOptionsRequest session_request;
-		session_request.session_options.emplace("catalog", config.catalog);
-		auto session_result = sql_client->SetSessionOptions(call_options, session_request);
-		if (!session_result.ok()) {
-			throw IOException("Failed to set Altertable session catalog \"%s\": %s", config.catalog,
-			                  session_result.status().ToString());
-		}
-		auto set_result = session_result.ValueOrDie();
-		auto catalog_error = set_result.errors.find("catalog");
-		if (catalog_error != set_result.errors.end()) {
-			throw IOException("Failed to set Altertable session catalog \"%s\": %s", config.catalog,
-			                  arrow::flight::ToString(catalog_error->second.value));
-		}
+		SetAltertableSessionOption(*sql_client, call_options, "catalog", config.catalog, "catalog");
+	}
+	if (!config.compute_size.empty()) {
+		SetAltertableSessionOption(*sql_client, call_options, "compute_size", config.compute_size, "compute size");
 	}
 
 	auto connection = make_shared_ptr<OwnedAltertableConnection>(std::move(sql_client));

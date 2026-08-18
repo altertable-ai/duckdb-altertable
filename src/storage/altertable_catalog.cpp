@@ -108,6 +108,7 @@ string AltertableCatalog::GetConnectionString(ClientContext &context, const stri
 		new_connection_info += AddConnectionOption(*kv_secret, "catalog");
 		new_connection_info += AddConnectionOption(*kv_secret, "dbname");
 		new_connection_info += AddConnectionOption(*kv_secret, "database");
+		new_connection_info += AddConnectionOption(*kv_secret, "compute_size");
 
 		connection_string = new_connection_info + connection_string;
 	} else if (explicit_secret) {

@@ -1,0 +1,59 @@
+# name: test/sql/compute_size.test
+# description: Optional compute_size DSN/secret parameter sets the Flight SQL session computeSize option
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+# Valid compute_size in the DSN is accepted on connect.
+query I
+SELECT * FROM altertable_query('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL} compute_size=XL', 'SELECT 42 AS n')
+----
+42
+
+# Alternate size spellings accepted by the server are forwarded as-is.
+query I
+SELECT * FROM altertable_query('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL} compute_size=2XL', 'SELECT 7 AS n')
+----
+7
+
+# Invalid compute_size values are rejected when the connection opens.
+statement error
+SELECT * FROM altertable_query('host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL} compute_size=HUGE', 'SELECT 1 AS n')
+----
+InvalidValue
+
+# compute_size can also be supplied through a secret.
+statement ok
+CREATE SECRET altertable_compute_size_secret (
+    TYPE altertable,
+    HOST '${ALTERTABLE_TEST_HOST}',
+    PORT '${ALTERTABLE_TEST_PORT}',
+    USER '${ALTERTABLE_TEST_USER}',
+    PASSWORD '${ALTERTABLE_TEST_PASSWORD}',
+    SSL '${ALTERTABLE_TEST_SSL}',
+    COMPUTE_SIZE 'M'
+)
+
+statement ok
+ATTACH '' AS compute_size_db (TYPE altertable, SECRET altertable_compute_size_secret)
+
+query I
+SELECT * FROM altertable_query('compute_size_db', 'SELECT 99 AS n')
+----
+99
+
+statement ok
+DETACH compute_size_db
+
+statement ok
+DROP SECRET altertable_compute_size_secret
