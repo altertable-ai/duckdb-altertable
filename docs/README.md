@@ -39,18 +39,20 @@ DETACH db;
 
 ### Connection String Parameters
 
-| Parameter  | Description                        | Example                    |
-| ---------- | ---------------------------------- | -------------------------- |
-| `user`     | Username for authentication        | `your-altertable-user`     |
-| `password` | Password for authentication        | `your-altertable-password` |
-| `catalog`  | Remote Altertable catalog          | `analytics`                |
-| `host`     | Server hostname or IP address      | `flight.altertable.ai`     |
-| `port`     | Server port                        | `443`                      |
-| `ssl`      | Enable SSL/TLS (`true` or `false`) | `true`                     |
+| Parameter      | Description                        | Example                    |
+| -------------- | ---------------------------------- | -------------------------- |
+| `user`         | Username for authentication        | `your-altertable-user`     |
+| `password`     | Password for authentication        | `your-altertable-password` |
+| `catalog`      | Remote Altertable catalog          | `analytics`                |
+| `compute_size` | Optional compute size (see below)  | `XL`                       |
+| `host`         | Server hostname or IP address      | `flight.altertable.ai`     |
+| `port`         | Server port                        | `443`                      |
+| `ssl`          | Enable SSL/TLS (`true` or `false`) | `true`                     |
 
 Default connection behavior:
 
 - set `catalog` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
+- set `compute_size` optionally to request a compute tier for the Flight SQL session; omit it to use the server default. Accepted values: `XS`, `S`, `M`, `L`, `XL`, `2XL`/`XXL`, `3XL`/`XXXL`, `4XL`/`XXXXL`
 - DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
 
 ### Secrets
@@ -62,7 +64,8 @@ CREATE SECRET my_altertable (
     TYPE altertable,
     USER 'your-user',
     PASSWORD 'your-password',
-    CATALOG 'your-altertable-catalog'
+    CATALOG 'your-altertable-catalog',
+    COMPUTE_SIZE 'XL'
 );
 
 ATTACH '' AS analytics (TYPE altertable, SECRET my_altertable);

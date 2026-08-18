@@ -43,6 +43,8 @@ unique_ptr<BaseSecret> CreateAltertableSecretFunction(ClientContext &context, Cr
 			result->secret_map["port"] = named_param.second.ToString();
 		} else if (lower_name == "ssl") {
 			result->secret_map["ssl"] = named_param.second.ToString();
+		} else if (lower_name == "compute_size") {
+			result->secret_map["compute_size"] = named_param.second.ToString();
 		} else {
 			throw BinderException("Unknown named parameter passed to CREATE SECRET (TYPE altertable): " + lower_name);
 		}
@@ -62,6 +64,7 @@ void SetAltertableSecretParameters(CreateSecretFunction &function) {
 	function.named_parameters["database"] = LogicalType::VARCHAR; // legacy alias for catalog
 	function.named_parameters["dbname"] = LogicalType::VARCHAR;
 	function.named_parameters["ssl"] = LogicalType::VARCHAR;
+	function.named_parameters["compute_size"] = LogicalType::VARCHAR;
 }
 
 static void LoadInternal(ExtensionLoader &loader) {

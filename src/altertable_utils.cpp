@@ -130,6 +130,9 @@ AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) 
 		} else if ((key == "database" || key == "dbname") && !result.has_catalog) {
 			result.catalog = value;
 			result.has_catalog = true;
+		} else if (key == "compute_size" || key == "computesize") {
+			result.compute_size = value;
+			result.has_compute_size = true;
 		}
 	}
 	return result;
@@ -157,6 +160,9 @@ string AltertableConnectionConfig::ToDSN(bool redact_password) const {
 	}
 	if (has_catalog || !catalog.empty()) {
 		append("catalog", catalog);
+	}
+	if (has_compute_size || !compute_size.empty()) {
+		append("compute_size", compute_size);
 	}
 	if (has_ssl || !ssl) {
 		append("ssl", ssl ? "true" : "false");

@@ -25,6 +25,7 @@ struct AltertableConnectionConfig {
 	string user;
 	string password;
 	string catalog;
+	string compute_size;
 	bool ssl = true;
 
 	bool has_host = false;
@@ -32,6 +33,7 @@ struct AltertableConnectionConfig {
 	bool has_user = false;
 	bool has_password = false;
 	bool has_catalog = false;
+	bool has_compute_size = false;
 	bool has_ssl = false;
 
 	static AltertableConnectionConfig Parse(const string &dsn);
