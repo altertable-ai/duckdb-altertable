@@ -34,8 +34,44 @@ SELECT n FROM txdb.main.__explicit_tx_tbl ORDER BY n
 ----
 77
 
+query I
+UPDATE txdb.main.__explicit_tx_tbl SET n = 88 WHERE n = 77 RETURNING n
+----
+88
+
+query I
+SELECT n FROM txdb.main.__explicit_tx_tbl ORDER BY n
+----
+88
+
+statement ok
+ROLLBACK
+
+query I
+SELECT n FROM txdb.main.__explicit_tx_tbl ORDER BY n
+----
+77
+
+statement ok
+BEGIN TRANSACTION
+
+query I
+DELETE FROM txdb.main.__explicit_tx_tbl WHERE n = 77 RETURNING n
+----
+77
+
+query I
+SELECT COUNT(*) FROM txdb.main.__explicit_tx_tbl
+----
+0
+
 statement ok
 COMMIT
+
+query I
+SELECT COUNT(*) FROM txdb.main.__explicit_tx_tbl
+----
+0
 
 statement ok
 CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __helper_transaction_visibility')

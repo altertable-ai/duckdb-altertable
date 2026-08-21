@@ -47,6 +47,26 @@ INSERT INTO ro_db2.main.__rw_execute_ok VALUES (1)
 Cannot insert into read-only Altertable database
 
 statement error
+UPDATE ro_db2.main.__rw_execute_ok SET x = 2
+----
+Cannot modify read-only Altertable database
+
+statement error
+UPDATE ro_db2.main.__rw_execute_ok SET x = 2 RETURNING x
+----
+Cannot modify read-only Altertable database
+
+statement error
+DELETE FROM ro_db2.main.__rw_execute_ok WHERE x = 1
+----
+Cannot modify read-only Altertable database
+
+statement error
+DELETE FROM ro_db2.main.__rw_execute_ok WHERE x = 1 RETURNING x
+----
+Cannot modify read-only Altertable database
+
+statement error
 CREATE TABLE ro_db2.main.__ro_create_table_should_fail (x INTEGER)
 ----
 Cannot execute statement of type "CREATE" on database "ro_db2" which is attached in read-only mode!

@@ -19,7 +19,9 @@
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
+#include "duckdb/planner/operator/logical_update.hpp"
 
 namespace duckdb {
 
@@ -301,12 +303,20 @@ PhysicalOperator &AltertableCatalog::PlanInsert(ClientContext &context, Physical
 
 PhysicalOperator &AltertableCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalDelete &op, PhysicalOperator &plan) {
+	if (op.return_chunk) {
+		throw BinderException("DELETE ... RETURNING is not supported for Altertable attached tables; "
+		                      "use altertable_execute() to forward a remote DELETE statement");
+	}
 	throw BinderException("DELETE from Altertable attached tables is not supported by DuckDB's row-id write path yet; "
 	                      "use altertable_execute() to forward a remote DELETE statement");
 }
 
 PhysicalOperator &AltertableCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner,
                                                 LogicalUpdate &op, PhysicalOperator &plan) {
+	if (op.return_chunk) {
+		throw BinderException("UPDATE ... RETURNING is not supported for Altertable attached tables; "
+		                      "use altertable_execute() to forward a remote UPDATE statement");
+	}
 	throw BinderException("UPDATE of Altertable attached tables is not supported by DuckDB's row-id write path yet; "
 	                      "use altertable_execute() to forward a remote UPDATE statement");
 }

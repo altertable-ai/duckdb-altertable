@@ -188,12 +188,22 @@ DROP TABLE analytics.main.top_customers;
 
 `READ_ONLY` attachments reject attached writes and `altertable_execute`, including
 schema/table creation, alteration, and drops.
-Attached `UPDATE` and `DELETE` are intentionally rejected today because DuckDB's
-storage write path requires row identifiers that Altertable does not expose
-through this extension yet. Use `altertable_execute` to forward remote `UPDATE`
-or `DELETE` SQL explicitly:
+Attached `UPDATE` and `DELETE` statements whose complete plan is remote are
+forwarded as one Flight SQL statement. This includes same-attachment
+`UPDATE ... FROM`, `DELETE ... USING`, and remote subqueries or CTEs. Mixed
+local/remote writes and `INSERT ... RETURNING` are not supported yet and are
+rejected. Fully remote `UPDATE ... RETURNING` and `DELETE ... RETURNING`
+statements return the rows produced by the remote statement:
+Use `altertable_execute` when a statement falls outside this pushdown scope:
 
 ```sql
+UPDATE analytics.main.new_orders SET note = 'reviewed' WHERE order_id = 1;
+DELETE FROM analytics.main.new_orders WHERE order_id = 1;
+UPDATE analytics.main.new_orders SET note = 'reviewed'
+RETURNING order_id, note;
+DELETE FROM analytics.main.new_orders WHERE order_id = 1
+RETURNING order_id, note;
+
 CALL altertable_execute('analytics', 'UPDATE main.new_orders SET note = ''reviewed'' WHERE order_id = 1');
 CALL altertable_execute('analytics', 'DELETE FROM main.new_orders WHERE order_id = 1');
 ```
