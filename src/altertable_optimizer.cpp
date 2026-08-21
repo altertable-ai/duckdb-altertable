@@ -279,8 +279,8 @@ static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref, Alt
 			return true;
 		}
 		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, base.table_name);
-		auto entry = Catalog::GetEntry(context, base.catalog_name, base.schema_name, lookup_info,
-		                               OnEntryNotFound::RETURN_NULL);
+		auto entry =
+		    Catalog::GetEntry(context, base.catalog_name, base.schema_name, lookup_info, OnEntryNotFound::RETURN_NULL);
 		if (!entry || &entry->ParentCatalog() != &target_catalog) {
 			return false;
 		}
