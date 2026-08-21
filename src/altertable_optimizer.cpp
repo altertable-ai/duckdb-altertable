@@ -2,7 +2,6 @@
 #include "altertable_physical.hpp"
 #include "altertable_scanner.hpp"
 #include "duckdb/catalog/catalog.hpp"
-#include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/main/database_manager.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
@@ -279,8 +278,9 @@ static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref, Alt
 		if (base.catalog_name == INVALID_CATALOG && visible_ctes.find(base.table_name) != visible_ctes.end()) {
 			return true;
 		}
-		auto entry = Catalog::GetEntry<TableCatalogEntry>(context, base.catalog_name, base.schema_name, base.table_name,
-		                                                  OnEntryNotFound::RETURN_NULL);
+		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, base.table_name);
+		auto entry = Catalog::GetEntry(context, base.catalog_name, base.schema_name, lookup_info,
+		                               OnEntryNotFound::RETURN_NULL);
 		if (!entry || &entry->ParentCatalog() != &target_catalog) {
 			return false;
 		}
