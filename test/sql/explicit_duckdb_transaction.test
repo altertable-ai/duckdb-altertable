@@ -38,6 +38,34 @@ statement ok
 COMMIT
 
 statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __helper_transaction_visibility')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __helper_transaction_visibility (n INTEGER)')
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+CALL altertable_execute('txdb', 'INSERT INTO __helper_transaction_visibility VALUES (456)')
+
+query I
+SELECT COUNT(*) FROM txdb.main.__helper_transaction_visibility
+----
+1
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM txdb.main.__helper_transaction_visibility
+----
+0
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __helper_transaction_visibility')
+
+statement ok
 CALL altertable_execute('txdb', 'DROP TABLE __explicit_tx_tbl')
 
 statement ok

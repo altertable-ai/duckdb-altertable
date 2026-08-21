@@ -130,13 +130,8 @@ static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunc
 }
 
 static string AltertableTableReference(const AltertableBindData &bind_data) {
-	if (!bind_data.catalog_name.empty()) {
-		return AltertableUtils::QuoteAltertableIdentifier(bind_data.catalog_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-	}
-	return AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-	       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
+	return AltertableUtils::QualifiedTableReference(bind_data.catalog_name, bind_data.schema_name,
+	                                                bind_data.table_name);
 }
 
 static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context, TableFunctionInitInput &input,
@@ -187,75 +182,6 @@ bool AltertableGlobalState::TryOpenNewConnection(ClientContext &context, Alterta
 
 	lstate.connection = AltertableConnection::Open(bind_data.dsn);
 	return true;
-}
-
-string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
-	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<ConstantFilter>();
-		string op;
-		switch (constant_filter.comparison_type) {
-		case ExpressionType::COMPARE_EQUAL:
-			op = "=";
-			break;
-		case ExpressionType::COMPARE_GREATERTHAN:
-			op = ">";
-			break;
-		case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-			op = ">=";
-			break;
-		case ExpressionType::COMPARE_LESSTHAN:
-			op = "<";
-			break;
-		case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-			op = "<=";
-			break;
-		case ExpressionType::COMPARE_NOTEQUAL:
-			op = "<>";
-			break;
-		default:
-			return "";
-		}
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " " + op + " " +
-		       constant_filter.constant.ToSQLString();
-	}
-	case TableFilterType::CONJUNCTION_AND: {
-		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
-		string result;
-		for (auto &child_filter : and_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " AND ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::CONJUNCTION_OR: {
-		auto &or_filter = filter.Cast<ConjunctionOrFilter>();
-		string result;
-		for (auto &child_filter : or_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " OR ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::IS_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NULL";
-	case TableFilterType::IS_NOT_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NOT NULL";
-	default:
-		return "";
-	}
 }
 
 static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context, TableFunctionInitInput &input,
@@ -334,14 +260,17 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 					                        table_col_idx, bind_data.names.size());
 				}
 
-				string col_name = bind_data.names[table_col_idx];
-				string predicate = GetPredicateFromFilter(filter, col_name);
-				if (!predicate.empty()) {
-					if (!filter_string.empty()) {
-						filter_string += " AND ";
-					}
-					filter_string += predicate;
+				string predicate;
+				if (!TryGetAltertablePredicate(filter, bind_data.names[table_col_idx], predicate)) {
+					throw NotImplementedException("Unsupported table filter for Altertable pushdown");
 				}
+				if (predicate.empty()) {
+					continue;
+				}
+				if (!filter_string.empty()) {
+					filter_string += " AND ";
+				}
+				filter_string += predicate;
 			}
 			if (!filter_string.empty()) {
 				query += " WHERE " + filter_string;
@@ -412,6 +341,11 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 	auto &scan_chunk = gstate.UseProjectionMapping() ? all_columns : output;
 	if (gstate.UseProjectionMapping()) {
 		all_columns.Reset();
+	}
+	auto expected_columns = gstate.UseProjectionMapping() ? gstate.scanned_types.size() : bind_data.types.size();
+	if (batch->num_columns() != expected_columns) {
+		throw IOException("Altertable returned %llu columns, but DuckDB expected %llu", batch->num_columns(),
+		                  expected_columns);
 	}
 	scan_chunk.SetCardinality(row_count);
 
@@ -887,7 +821,7 @@ static InsertionOrderPreservingMap<string> AltertableScanToString(TableFunctionT
 	InsertionOrderPreservingMap<string> result;
 	result["Function"] = "ALTERTABLE_SCAN";
 	if (!bind_data.sql.empty()) {
-		result["Query"] = bind_data.sql;
+		result["Query"] = AltertableUtils::QueryFingerprint(bind_data.sql);
 	}
 	return result;
 }

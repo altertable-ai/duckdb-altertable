@@ -1,0 +1,44 @@
+# name: test/sql/filter_pushdown_fail_closed.test
+# description: Unsupported scan filters must not be silently dropped
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS filter_safety_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('filter_safety_db', 'DROP TABLE IF EXISTS __filter_safety')
+
+statement ok
+CALL altertable_execute('filter_safety_db', 'CREATE TABLE __filter_safety (id INTEGER)')
+
+statement ok
+CALL altertable_execute('filter_safety_db', 'INSERT INTO __filter_safety VALUES (1), (2)')
+
+# The large IN subquery creates a MARK join, so whole-query replacement must
+# stay at the root and the attached scan receives a table filter.
+query I
+SELECT id
+FROM filter_safety_db.main.__filter_safety
+WHERE id IS DISTINCT FROM 1
+  AND id IN (SELECT i FROM range(300) tbl(i))
+ORDER BY id
+----
+2
+
+statement ok
+CALL altertable_execute('filter_safety_db', 'DROP TABLE __filter_safety')
+
+statement ok
+DETACH filter_safety_db

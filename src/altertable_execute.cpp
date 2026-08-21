@@ -85,14 +85,15 @@ static void AltertableExecuteFunc(ClientContext &context, TableFunctionInput &da
 	}
 	gstate.executed = true;
 
-	// Execute the statement with a fresh connection
-	auto con = AltertableConnection::Open(bind_data.dsn);
-	con.ExecuteUpdate(bind_data.sql);
 	auto &db_manager = DatabaseManager::Get(context);
 	auto db = db_manager.GetDatabase(context, bind_data.db_name);
-	if (db && db->GetCatalog().GetCatalogType() == "altertable") {
-		db->GetCatalog().Cast<AltertableCatalog>().ClearCache();
+	if (!db || db->GetCatalog().GetCatalogType() != "altertable") {
+		throw BinderException("Database \"%s\" is not an Altertable database", bind_data.db_name);
 	}
+	auto &catalog = db->GetCatalog().Cast<AltertableCatalog>();
+	auto &transaction = Transaction::Get(context, catalog).Cast<AltertableTransaction>();
+	transaction.ExecuteUpdate(bind_data.sql);
+	catalog.ClearCache();
 
 	output.SetCardinality(1);
 	output.SetValue(0, 0, Value::BOOLEAN(true));

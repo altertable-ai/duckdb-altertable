@@ -82,82 +82,8 @@ static string BindingKey(const ColumnBinding &binding) {
 }
 
 static string AltertableTableReference(const AltertableBindData &bind_data) {
-	if (!bind_data.catalog_name.empty()) {
-		return AltertableUtils::QuoteAltertableIdentifier(bind_data.catalog_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-	}
-	return AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-	       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-}
-
-static string ComparisonOperator(ExpressionType type) {
-	switch (type) {
-	case ExpressionType::COMPARE_EQUAL:
-		return "=";
-	case ExpressionType::COMPARE_NOTEQUAL:
-		return "<>";
-	case ExpressionType::COMPARE_LESSTHAN:
-		return "<";
-	case ExpressionType::COMPARE_GREATERTHAN:
-		return ">";
-	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-		return "<=";
-	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-		return ">=";
-	case ExpressionType::COMPARE_DISTINCT_FROM:
-		return "IS DISTINCT FROM";
-	case ExpressionType::COMPARE_NOT_DISTINCT_FROM:
-		return "IS NOT DISTINCT FROM";
-	default:
-		throw NotImplementedException("Unsupported comparison for Altertable pushdown");
-	}
-}
-
-static string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
-	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<ConstantFilter>();
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " " +
-		       ComparisonOperator(constant_filter.comparison_type) + " " + constant_filter.constant.ToSQLString();
-	}
-	case TableFilterType::CONJUNCTION_AND: {
-		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
-		string result;
-		for (auto &child_filter : and_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " AND ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::CONJUNCTION_OR: {
-		auto &or_filter = filter.Cast<ConjunctionOrFilter>();
-		string result;
-		for (auto &child_filter : or_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " OR ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::IS_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NULL";
-	case TableFilterType::IS_NOT_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NOT NULL";
-	default:
-		return "";
-	}
+	return AltertableUtils::QualifiedTableReference(bind_data.catalog_name, bind_data.schema_name,
+	                                                bind_data.table_name);
 }
 
 static string OutputExpressionName(Expression &expr, idx_t index) {
@@ -505,8 +431,12 @@ private:
 		}
 		case ExpressionClass::BOUND_COMPARISON: {
 			auto &comparison = expr.Cast<BoundComparisonExpression>();
-			return "(" + RenderExpression(*comparison.left, bindings) + " " + ComparisonOperator(comparison.type) +
-			       " " + RenderExpression(*comparison.right, bindings) + ")";
+			string comparison_operator;
+			if (!TryGetAltertableComparisonOperator(comparison.type, comparison_operator)) {
+				throw NotImplementedException("Unsupported comparison for Altertable pushdown");
+			}
+			return "(" + RenderExpression(*comparison.left, bindings) + " " + comparison_operator + " " +
+			       RenderExpression(*comparison.right, bindings) + ")";
 		}
 		case ExpressionClass::BOUND_CONJUNCTION: {
 			auto &conjunction = expr.Cast<BoundConjunctionExpression>();
@@ -688,9 +618,12 @@ private:
 			if (table_col_idx >= bind_data.names.size()) {
 				throw NotImplementedException("Altertable filter table column out of range");
 			}
-			auto predicate = GetPredicateFromFilter(*entry.second, bind_data.names[table_col_idx]);
-			if (predicate.empty()) {
+			string predicate;
+			if (!TryGetAltertablePredicate(*entry.second, bind_data.names[table_col_idx], predicate)) {
 				throw NotImplementedException("Unsupported table filter for Altertable pushdown");
+			}
+			if (predicate.empty()) {
+				continue;
 			}
 			if (!filters.empty()) {
 				filters += " AND ";
@@ -873,7 +806,7 @@ public:
 
 	InsertionOrderPreservingMap<string> ParamsToString() const override {
 		InsertionOrderPreservingMap<string> result;
-		result["Query"] = sql;
+		result["Query"] = AltertableUtils::QueryFingerprint(sql);
 		return result;
 	}
 
@@ -896,13 +829,7 @@ private:
 };
 
 static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
-	string result;
-	if (!catalog.GetRemoteCatalog().empty()) {
-		result += AltertableUtils::QuoteAltertableIdentifier(catalog.GetRemoteCatalog()) + ".";
-	}
-	result += AltertableUtils::QuoteAltertableIdentifier(table.schema.name) + ".";
-	result += AltertableUtils::QuoteAltertableIdentifier(table.name);
-	return result;
+	return AltertableUtils::QualifiedTableReference(catalog.GetRemoteCatalog(), table.schema.name, table.name);
 }
 
 static string AltertableInsertColumnList(const AltertableTableEntry &table) {

@@ -41,6 +41,16 @@ AltertableConnection &AltertablePoolConnection::GetConnection() {
 	return connection;
 }
 
+void AltertablePoolConnection::Discard() {
+	if (pool) {
+		auto connection_pool = pool;
+		pool = nullptr;
+		connection_pool->DiscardConnection(std::move(connection));
+		return;
+	}
+	pool = nullptr;
+}
+
 AltertableConnectionPool::AltertableConnectionPool(AltertableCatalog &altertable_catalog, idx_t maximum_connections_p)
     : altertable_catalog(altertable_catalog), active_connections(0), maximum_connections(maximum_connections_p) {
 }
@@ -55,7 +65,13 @@ AltertablePoolConnection AltertableConnectionPool::GetConnectionInternal(unique_
 	}
 	// no cached connections left but there is space to open a new one - open it after releasing the cache lock
 	lock.unlock();
-	return AltertablePoolConnection(this, AltertableConnection::Open(altertable_catalog.connection_string));
+	try {
+		return AltertablePoolConnection(this, AltertableConnection::Open(altertable_catalog.connection_string));
+	} catch (...) {
+		lock.lock();
+		active_connections--;
+		throw;
+	}
 }
 
 bool AltertableConnectionPool::TryGetConnection(AltertablePoolConnection &connection) {
@@ -98,9 +114,10 @@ void AltertableConnectionPool::ReturnConnection(AltertableConnection connection)
 	// check if the underlying connection is still usable
 	// avoid holding the lock while doing this
 	l.unlock();
-	// For Arrow Flight SQL, we'll just assume connections are valid
-	// TODO: Implement proper connection health checking for Flight SQL
-	bool connection_is_bad = false;
+	// A moved-from or explicitly closed connection must never be cached. Remote
+	// health is checked by the next operation because Flight has no cheap,
+	// side-effect-free ping in the API used here.
+	bool connection_is_bad = !connection.IsOpen();
 	// lock and return the connection
 	l.lock();
 	active_connections--;
@@ -114,6 +131,14 @@ void AltertableConnectionPool::ReturnConnection(AltertableConnection connection)
 		return;
 	}
 	connection_cache.push_back(std::move(connection));
+}
+
+void AltertableConnectionPool::DiscardConnection(AltertableConnection connection) {
+	unique_lock<mutex> l(connection_lock);
+	if (active_connections <= 0) {
+		throw InternalException("AltertableConnectionPool::DiscardConnection called but active_connections is 0");
+	}
+	active_connections--;
 }
 
 } // namespace duckdb

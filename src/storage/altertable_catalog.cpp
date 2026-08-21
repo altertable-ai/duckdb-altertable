@@ -37,34 +37,12 @@ string AltertableCatalog::ExtractCatalogFromConnectionString(const string &conne
 	return AltertableConnectionConfig::Parse(connection_string).catalog;
 }
 
-static string QuoteDSNValue(const string &value) {
-	bool needs_quoting = value.empty();
-	for (char c : value) {
-		if (StringUtil::CharacterIsSpace(c) || c == '\'' || c == '"' || c == '\\' || c == '=') {
-			needs_quoting = true;
-			break;
-		}
-	}
-	if (!needs_quoting) {
-		return value;
-	}
-	string result = "'";
-	for (char c : value) {
-		if (c == '\'' || c == '\\') {
-			result += '\\';
-		}
-		result += c;
-	}
-	result += "'";
-	return result;
-}
-
 string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
 	Value input_val = kv_secret.TryGetValue(name);
 	if (input_val.IsNull()) {
 		return string();
 	}
-	return name + "=" + QuoteDSNValue(input_val.ToString()) + " ";
+	return name + "=" + AltertableUtils::QuoteDSNValue(input_val.ToString()) + " ";
 }
 
 unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_name) {
@@ -85,6 +63,10 @@ unique_ptr<SecretEntry> GetSecret(ClientContext &context, const string &secret_n
 string AltertableCatalog::GetConnectionString(ClientContext &context, const string &attach_path, string secret_name) {
 	// if no secret is specified we default to the unnamed altertable secret, if it exists
 	string connection_string = attach_path;
+	if (!connection_string.empty() && connection_string.find('=') == string::npos) {
+		auto short_config = AltertableConnectionConfig::Parse(connection_string);
+		connection_string = "catalog=" + AltertableUtils::QuoteDSNValue(short_config.catalog);
+	}
 	bool explicit_secret = !secret_name.empty();
 	if (!explicit_secret) {
 		// look up settings from the default unnamed altertable secret if none is provided
@@ -213,13 +195,7 @@ PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, P
 }
 
 static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
-	string result;
-	if (!catalog.GetRemoteCatalog().empty()) {
-		result += AltertableUtils::QuoteAltertableIdentifier(catalog.GetRemoteCatalog()) + ".";
-	}
-	result += AltertableUtils::QuoteAltertableIdentifier(table.schema.name) + ".";
-	result += AltertableUtils::QuoteAltertableIdentifier(table.name);
-	return result;
+	return AltertableUtils::QualifiedTableReference(catalog.GetRemoteCatalog(), table.schema.name, table.name);
 }
 
 static string AltertableInsertColumnList(const vector<string> &column_names) {

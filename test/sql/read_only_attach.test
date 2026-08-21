@@ -46,6 +46,26 @@ INSERT INTO ro_db2.main.__rw_execute_ok VALUES (1)
 ----
 Cannot insert into read-only Altertable database
 
+statement error
+CREATE TABLE ro_db2.main.__ro_create_table_should_fail (x INTEGER)
+----
+Cannot execute statement of type "CREATE" on database "ro_db2" which is attached in read-only mode!
+
+statement error
+CREATE SCHEMA ro_db2.__ro_create_schema_should_fail
+----
+Cannot execute statement of type "CREATE" on database "ro_db2" which is attached in read-only mode!
+
+statement error
+ALTER TABLE ro_db2.main.__rw_execute_ok ADD COLUMN ro_guard INTEGER
+----
+Cannot execute statement of type "ALTER" on database "ro_db2" which is attached in read-only mode!
+
+statement error
+DROP TABLE ro_db2.main.__rw_execute_ok
+----
+Cannot execute statement of type "DROP" on database "ro_db2" which is attached in read-only mode!
+
 statement ok
 DETACH ro_db2
 
