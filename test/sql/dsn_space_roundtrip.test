@@ -1,0 +1,29 @@
+# name: test/sql/dsn_space_roundtrip.test
+# description: DSN values containing spaces survive secret expansion
+# group: [sql]
+
+require altertable
+
+statement ok
+CREATE SECRET __dsn_space_roundtrip (
+    TYPE altertable,
+    HOST 'bad host',
+    PORT '1',
+    USER 'u',
+    PASSWORD 'p',
+    SSL 'false'
+)
+
+statement ok
+ATTACH '' AS __dsn_space_roundtrip_db (TYPE ALTERTABLE, SECRET __dsn_space_roundtrip)
+
+statement error
+SELECT * FROM __dsn_space_roundtrip_db.main.t
+----
+bad host
+
+statement ok
+DETACH __dsn_space_roundtrip_db
+
+statement ok
+DROP SECRET __dsn_space_roundtrip

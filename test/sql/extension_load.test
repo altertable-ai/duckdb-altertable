@@ -13,3 +13,9 @@ SELECT 1
 # Check that altertable functions are registered
 statement ok
 SELECT * FROM duckdb_functions() WHERE function_name LIKE 'altertable%' LIMIT 1
+
+# Statically linked builds report Version(); loadable binaries report the footer.
+query I
+SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'altertable' AND extension_version != ''
+----
+1

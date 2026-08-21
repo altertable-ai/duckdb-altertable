@@ -23,7 +23,12 @@ LOAD altertable;
 
 ```sql
 -- Attach an Altertable database
-ATTACH 'user=my-user password=my-pass catalog=my-altertable-catalog' AS db (TYPE ALTERTABLE);
+CREATE SECRET my_altertable (
+    TYPE altertable,
+    USER 'my-user',
+    PASSWORD 'my-pass'
+);
+ATTACH 'catalog=my-altertable-catalog' AS db (TYPE ALTERTABLE, SECRET my_altertable);
 
 -- Query tables directly
 SELECT * FROM db.main.events;
@@ -54,28 +59,41 @@ Default connection behavior:
 - set `catalog` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
 - set `compute_size` optionally to request a compute tier for the Flight SQL session; omit it to use the server default. Accepted values: `XS`, `S`, `M`, `L`, `XL`, `2XL`/`XXL`, `3XL`/`XXXL`, `4XL`/`XXXXL`
 - DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
+- Prefer secrets over inline DSNs so passwords do not appear in SQL history or attached database paths
+
+When the attachment only needs to select a remote catalog, a single-word path
+is accepted as shorthand for `catalog=...`:
+
+```sql
+ATTACH 'analytics' AS analytics (TYPE ALTERTABLE, SECRET my_altertable);
+```
 
 ### Secrets
 
-Use DuckDB secrets so credentials are not repeated in SQL statements:
+Use DuckDB secrets so credentials are not repeated in SQL statements. Put
+attachment-specific settings such as `catalog` in the `ATTACH` connection
+string:
 
 ```sql
 CREATE SECRET my_altertable (
     TYPE altertable,
     USER 'your-user',
     PASSWORD 'your-password',
-    CATALOG 'your-altertable-catalog',
     COMPUTE_SIZE 'XL'
 );
 
-ATTACH '' AS analytics (TYPE altertable, SECRET my_altertable);
+ATTACH 'catalog=your-altertable-catalog' AS analytics (TYPE altertable, SECRET my_altertable);
 ```
 
 ## Functions
 
 ### `altertable_query(database, query)`
 
-Execute a SELECT query on the attached database and return results.
+Execute a SELECT query on the attached database and return results. When the first
+argument names an attached Altertable database, the function uses that database's
+DuckDB transaction connection; its reads therefore observe uncommitted attached
+writes and follow `COMMIT`/`ROLLBACK`. It is not an independent autocommit
+connection.
 
 ```sql
 -- Run a query and get results
@@ -84,7 +102,9 @@ SELECT * FROM altertable_query('db', 'SELECT id, name FROM users WHERE active = 
 
 ### `altertable_execute(database, statement)`
 
-Execute DDL or DML statements (CREATE, INSERT, UPDATE, DELETE, etc.) on the remote database.
+Execute DDL or DML statements (CREATE, INSERT, UPDATE, DELETE, etc.) on the remote
+database. When called for an attached database, the statement participates in the
+current DuckDB transaction and is rejected for `READ_ONLY` attachments.
 
 ```sql
 -- Create a table
@@ -106,7 +126,12 @@ CALL altertable_execute('db', 'DROP TABLE IF EXISTS my_table');
 LOAD altertable;
 
 -- Connect to a remote Arrow Flight SQL server
-ATTACH 'user=acme password=secret catalog=analytics' AS analytics (TYPE ALTERTABLE);
+CREATE SECRET acme_altertable (
+    TYPE altertable,
+    USER 'acme',
+    PASSWORD 'secret'
+);
+ATTACH 'catalog=analytics' AS analytics (TYPE ALTERTABLE, SECRET acme_altertable);
 
 -- Explore available tables
 SELECT * FROM analytics.information_schema.tables;
@@ -128,6 +153,20 @@ FROM local_customers l
 JOIN analytics.sales.customer_summary r ON l.id = r.customer_id;
 ```
 
+### Pushdown behavior
+
+An all-remote `SELECT` can be forwarded as one Flight SQL statement, including
+joins, aggregates, CTEs, set operations, projections, filters, ordering, and
+limits when DuckDB can bind every referenced relation to the same attachment.
+Mixed local/remote plans use scan-level projection, filter, and limit pushdown
+where the predicate is representable by Altertable; the remaining work stays in
+DuckDB. Unsupported scan filters fail rather than being silently omitted.
+
+Use `EXPLAIN` to verify whether a query is remote. Setting
+`SET altertable_debug_show_queries = true` emits only a remote SQL byte count
+and fingerprint, not query text or literal values. This setting is process-wide
+and is intended for diagnostics, not application-level telemetry.
+
 ### Attached DDL and Writes
 
 The attached database path supports common relation DDL and inserts:
@@ -147,10 +186,24 @@ ALTER TABLE analytics.main.new_orders ADD COLUMN note VARCHAR;
 DROP TABLE analytics.main.top_customers;
 ```
 
-`READ_ONLY` attachments reject attached writes and `altertable_execute`.
-Attached `UPDATE` and `DELETE` are intentionally rejected today because DuckDB's storage write path requires row identifiers that Altertable does not expose through this extension yet. Use `altertable_execute` to forward remote `UPDATE` or `DELETE` SQL explicitly:
+`READ_ONLY` attachments reject attached writes and `altertable_execute`, including
+schema/table creation, alteration, and drops.
+Attached `UPDATE` and `DELETE` statements whose complete plan is remote are
+forwarded as one Flight SQL statement. This includes same-attachment
+`UPDATE ... FROM`, `DELETE ... USING`, and remote subqueries or CTEs. Mixed
+local/remote writes and `INSERT ... RETURNING` are not supported yet and are
+rejected. Fully remote `UPDATE ... RETURNING` and `DELETE ... RETURNING`
+statements return the rows produced by the remote statement:
+Use `altertable_execute` when a statement falls outside this pushdown scope:
 
 ```sql
+UPDATE analytics.main.new_orders SET note = 'reviewed' WHERE order_id = 1;
+DELETE FROM analytics.main.new_orders WHERE order_id = 1;
+UPDATE analytics.main.new_orders SET note = 'reviewed'
+RETURNING order_id, note;
+DELETE FROM analytics.main.new_orders WHERE order_id = 1
+RETURNING order_id, note;
+
 CALL altertable_execute('analytics', 'UPDATE main.new_orders SET note = ''reviewed'' WHERE order_id = 1');
 CALL altertable_execute('analytics', 'DELETE FROM main.new_orders WHERE order_id = 1');
 ```

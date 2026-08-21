@@ -12,6 +12,68 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  integration-test:
+    name: Mock-backed integration tests
+    runs-on: ubuntu-24.04
+    services:
+      altertable:
+        image: ghcr.io/altertable-ai/altertable-mock@sha256:9f9df026fbd6c31dee9242309417d4fe4c7376cd19f9c68a3d3f1d28d5a03d1d
+        ports:
+          - 15002:15002
+        env:
+          ALTERTABLE_MOCK_USERS: testuser:testpass
+        options: >-
+          --health-cmd "exit 0"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 3
+          --health-start-period 10s
+    env:
+      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      VCPKG_TARGET_TRIPLET: x64-linux
+      GEN: ninja
+      ALTERTABLE_TEST_HOST: localhost
+      ALTERTABLE_TEST_PORT: 15002
+      ALTERTABLE_TEST_USER: testuser
+      ALTERTABLE_TEST_PASSWORD: testpass
+      ALTERTABLE_TEST_SSL: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build tools
+        run: sudo apt-get update -y -qq && sudo apt-get install -y -qq ninja-build
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11.1
+        with:
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+
+      - name: Build
+        run: make
+
+      - name: Wait for mock service
+        run: |
+          ready_checks=0
+          for _ in {1..30}; do
+            if (echo >/dev/tcp/127.0.0.1/15002) 2>/dev/null; then
+              ready_checks=$((ready_checks + 1))
+              if [[ "$ready_checks" -ge 5 ]]; then
+                exit 0
+              fi
+            else
+              ready_checks=0
+            fi
+            sleep 1
+          done
+          echo "altertable-mock did not accept connections on port 15002" >&2
+          exit 1
+
+      - name: Test
+        run: make test
+
   duckdb-stable-build:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.5

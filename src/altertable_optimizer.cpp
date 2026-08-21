@@ -2,14 +2,22 @@
 #include "altertable_physical.hpp"
 #include "altertable_scanner.hpp"
 #include "duckdb/catalog/catalog.hpp"
+#include "duckdb/main/database_manager.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/expression/subquery_expression.hpp"
 #include "duckdb/parser/parser.hpp"
+#include "duckdb/parser/parsed_expression_iterator.hpp"
+#include "duckdb/parser/query_node/recursive_cte_node.hpp"
 #include "duckdb/parser/query_node/select_node.hpp"
 #include "duckdb/parser/query_node/set_operation_node.hpp"
+#include "duckdb/parser/statement/delete_statement.hpp"
 #include "duckdb/parser/statement/explain_statement.hpp"
 #include "duckdb/parser/statement/select_statement.hpp"
+#include "duckdb/parser/statement/update_statement.hpp"
 #include "duckdb/parser/tableref/basetableref.hpp"
 #include "duckdb/parser/tableref/joinref.hpp"
+#include "duckdb/parser/tableref/expressionlistref.hpp"
 #include "duckdb/parser/tableref/subqueryref.hpp"
 #include "duckdb/planner/bound_result_modifier.hpp"
 #include "duckdb/planner/expression/bound_between_expression.hpp"
@@ -27,12 +35,14 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/operator/logical_aggregate.hpp"
+#include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
 #include "duckdb/planner/operator/logical_limit.hpp"
 #include "duckdb/planner/operator/logical_order.hpp"
 #include "duckdb/planner/operator/logical_projection.hpp"
+#include "duckdb/planner/operator/logical_update.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
 #include "storage/altertable_catalog.hpp"
@@ -82,82 +92,8 @@ static string BindingKey(const ColumnBinding &binding) {
 }
 
 static string AltertableTableReference(const AltertableBindData &bind_data) {
-	if (!bind_data.catalog_name.empty()) {
-		return AltertableUtils::QuoteAltertableIdentifier(bind_data.catalog_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-		       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-	}
-	return AltertableUtils::QuoteAltertableIdentifier(bind_data.schema_name) + "." +
-	       AltertableUtils::QuoteAltertableIdentifier(bind_data.table_name);
-}
-
-static string ComparisonOperator(ExpressionType type) {
-	switch (type) {
-	case ExpressionType::COMPARE_EQUAL:
-		return "=";
-	case ExpressionType::COMPARE_NOTEQUAL:
-		return "<>";
-	case ExpressionType::COMPARE_LESSTHAN:
-		return "<";
-	case ExpressionType::COMPARE_GREATERTHAN:
-		return ">";
-	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-		return "<=";
-	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-		return ">=";
-	case ExpressionType::COMPARE_DISTINCT_FROM:
-		return "IS DISTINCT FROM";
-	case ExpressionType::COMPARE_NOT_DISTINCT_FROM:
-		return "IS NOT DISTINCT FROM";
-	default:
-		throw NotImplementedException("Unsupported comparison for Altertable pushdown");
-	}
-}
-
-static string GetPredicateFromFilter(TableFilter &filter, const string &col_name) {
-	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<ConstantFilter>();
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " " +
-		       ComparisonOperator(constant_filter.comparison_type) + " " + constant_filter.constant.ToSQLString();
-	}
-	case TableFilterType::CONJUNCTION_AND: {
-		auto &and_filter = filter.Cast<ConjunctionAndFilter>();
-		string result;
-		for (auto &child_filter : and_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " AND ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::CONJUNCTION_OR: {
-		auto &or_filter = filter.Cast<ConjunctionOrFilter>();
-		string result;
-		for (auto &child_filter : or_filter.child_filters) {
-			auto child_predicate = GetPredicateFromFilter(*child_filter, col_name);
-			if (child_predicate.empty()) {
-				return "";
-			}
-			if (!result.empty()) {
-				result += " OR ";
-			}
-			result += "(" + child_predicate + ")";
-		}
-		return result;
-	}
-	case TableFilterType::IS_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NULL";
-	case TableFilterType::IS_NOT_NULL:
-		return AltertableUtils::QuoteAltertableIdentifier(col_name) + " IS NOT NULL";
-	default:
-		return "";
-	}
+	return AltertableUtils::QualifiedTableReference(bind_data.catalog_name, bind_data.schema_name,
+	                                                bind_data.table_name);
 }
 
 static string OutputExpressionName(Expression &expr, idx_t index) {
@@ -290,18 +226,174 @@ static bool AltertableSourcesCompatible(const vector<AltertableBindData *> &sour
 	return true;
 }
 
-static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref);
+static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref, AltertableCatalog &target_catalog,
+                                      const unordered_set<string> &visible_ctes);
 
-static bool RewriteAltertableQueryNode(ClientContext &context, QueryNode &node) {
+static bool RewriteAltertableQueryNode(ClientContext &context, QueryNode &node, AltertableCatalog &target_catalog,
+                                       const unordered_set<string> &visible_ctes);
+
+static bool RewriteAltertableParsedExpression(ClientContext &context, ParsedExpression &expression,
+                                              AltertableCatalog &target_catalog,
+                                              const unordered_set<string> &visible_ctes) {
+	if (expression.GetExpressionClass() == ExpressionClass::COLUMN_REF) {
+		auto &column_ref = expression.Cast<ColumnRefExpression>();
+		if (column_ref.column_names.size() == 4) {
+			auto db = DatabaseManager::Get(context).GetDatabase(context, column_ref.column_names[0]);
+			if (!db || &db->GetCatalog() != &target_catalog) {
+				return false;
+			}
+			if (target_catalog.GetRemoteCatalog().empty()) {
+				column_ref.column_names.erase(column_ref.column_names.begin());
+			} else {
+				column_ref.column_names[0] = target_catalog.GetRemoteCatalog();
+			}
+		}
+		return true;
+	}
+	bool result = true;
+	if (expression.GetExpressionClass() == ExpressionClass::SUBQUERY) {
+		auto &subquery = expression.Cast<SubqueryExpression>();
+		if (!subquery.subquery ||
+		    !RewriteAltertableQueryNode(context, *subquery.subquery->node, target_catalog, visible_ctes)) {
+			result = false;
+		}
+	}
+	try {
+		ParsedExpressionIterator::EnumerateChildren(expression, [&](unique_ptr<ParsedExpression> &child) {
+			if (result && child && !RewriteAltertableParsedExpression(context, *child, target_catalog, visible_ctes)) {
+				result = false;
+			}
+		});
+	} catch (NotImplementedException &) {
+		return false;
+	}
+	return result;
+}
+
+static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref, AltertableCatalog &target_catalog,
+                                      const unordered_set<string> &visible_ctes) {
+	switch (ref.type) {
+	case TableReferenceType::BASE_TABLE: {
+		auto &base = ref.Cast<BaseTableRef>();
+		if (base.catalog_name == INVALID_CATALOG && visible_ctes.find(base.table_name) != visible_ctes.end()) {
+			return true;
+		}
+		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, base.table_name);
+		auto entry =
+		    Catalog::GetEntry(context, base.catalog_name, base.schema_name, lookup_info, OnEntryNotFound::RETURN_NULL);
+		if (!entry || &entry->ParentCatalog() != &target_catalog) {
+			return false;
+		}
+		base.catalog_name = target_catalog.GetRemoteCatalog();
+		return true;
+	}
+	case TableReferenceType::JOIN: {
+		auto &join = ref.Cast<JoinRef>();
+		if (!RewriteAltertableTableRef(context, *join.left, target_catalog, visible_ctes) ||
+		    !RewriteAltertableTableRef(context, *join.right, target_catalog, visible_ctes)) {
+			return false;
+		}
+		return !join.condition ||
+		       RewriteAltertableParsedExpression(context, *join.condition, target_catalog, visible_ctes);
+	}
+	case TableReferenceType::SUBQUERY:
+		return RewriteAltertableQueryNode(context, *ref.Cast<SubqueryRef>().subquery->node, target_catalog,
+		                                  visible_ctes);
+	case TableReferenceType::EXPRESSION_LIST: {
+		auto &expression_list = ref.Cast<ExpressionListRef>();
+		for (auto &row : expression_list.values) {
+			for (auto &expression : row) {
+				if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, visible_ctes)) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	case TableReferenceType::EMPTY_FROM:
+	case TableReferenceType::CTE:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool RewriteAltertableQueryNode(ClientContext &context, QueryNode &node, AltertableCatalog &target_catalog,
+                                       const unordered_set<string> &visible_ctes) {
+	auto query_ctes = visible_ctes;
 	for (auto &cte : node.cte_map.map) {
-		if (!RewriteAltertableQueryNode(context, *cte.second->query->node)) {
+		query_ctes.insert(cte.first);
+	}
+	for (auto &cte : node.cte_map.map) {
+		if (!RewriteAltertableQueryNode(context, *cte.second->query->node, target_catalog, query_ctes)) {
+			return false;
+		}
+	}
+	for (auto &modifier : node.modifiers) {
+		switch (modifier->type) {
+		case ResultModifierType::ORDER_MODIFIER: {
+			auto &order = modifier->Cast<OrderModifier>();
+			for (auto &order_by : order.orders) {
+				if (!order_by.expression ||
+				    !RewriteAltertableParsedExpression(context, *order_by.expression, target_catalog, query_ctes)) {
+					return false;
+				}
+			}
+			break;
+		}
+		case ResultModifierType::LIMIT_MODIFIER: {
+			auto &limit = modifier->Cast<LimitModifier>();
+			if ((limit.limit &&
+			     !RewriteAltertableParsedExpression(context, *limit.limit, target_catalog, query_ctes)) ||
+			    (limit.offset &&
+			     !RewriteAltertableParsedExpression(context, *limit.offset, target_catalog, query_ctes))) {
+				return false;
+			}
+			break;
+		}
+		case ResultModifierType::LIMIT_PERCENT_MODIFIER: {
+			auto &limit_percent = modifier->Cast<LimitPercentModifier>();
+			if ((limit_percent.limit &&
+			     !RewriteAltertableParsedExpression(context, *limit_percent.limit, target_catalog, query_ctes)) ||
+			    (limit_percent.offset &&
+			     !RewriteAltertableParsedExpression(context, *limit_percent.offset, target_catalog, query_ctes))) {
+				return false;
+			}
+			break;
+		}
+		case ResultModifierType::DISTINCT_MODIFIER: {
+			auto &distinct = modifier->Cast<DistinctModifier>();
+			for (auto &expression : distinct.distinct_on_targets) {
+				if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, query_ctes)) {
+					return false;
+				}
+			}
+			break;
+		}
+		default:
 			return false;
 		}
 	}
 	switch (node.type) {
 	case QueryNodeType::SELECT_NODE: {
 		auto &select = node.Cast<SelectNode>();
-		if (select.from_table && !RewriteAltertableTableRef(context, *select.from_table)) {
+		if (select.from_table && !RewriteAltertableTableRef(context, *select.from_table, target_catalog, query_ctes)) {
+			return false;
+		}
+		for (auto &expression : select.select_list) {
+			if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, query_ctes)) {
+				return false;
+			}
+		}
+		if (select.where_clause &&
+		    !RewriteAltertableParsedExpression(context, *select.where_clause, target_catalog, query_ctes)) {
+			return false;
+		}
+		if (select.having && !RewriteAltertableParsedExpression(context, *select.having, target_catalog, query_ctes)) {
+			return false;
+		}
+		if (select.qualify &&
+		    !RewriteAltertableParsedExpression(context, *select.qualify, target_catalog, query_ctes)) {
 			return false;
 		}
 		return true;
@@ -309,40 +401,86 @@ static bool RewriteAltertableQueryNode(ClientContext &context, QueryNode &node) 
 	case QueryNodeType::SET_OPERATION_NODE: {
 		auto &setop = node.Cast<SetOperationNode>();
 		for (auto &child : setop.children) {
-			if (!RewriteAltertableQueryNode(context, *child)) {
+			if (!RewriteAltertableQueryNode(context, *child, target_catalog, query_ctes)) {
 				return false;
 			}
 		}
 		return true;
+	}
+	case QueryNodeType::RECURSIVE_CTE_NODE: {
+		auto &recursive_cte = node.Cast<RecursiveCTENode>();
+		return RewriteAltertableQueryNode(context, *recursive_cte.left, target_catalog, query_ctes) &&
+		       RewriteAltertableQueryNode(context, *recursive_cte.right, target_catalog, query_ctes);
 	}
 	default:
 		return false;
 	}
 }
 
-static bool RewriteAltertableTableRef(ClientContext &context, TableRef &ref) {
-	switch (ref.type) {
-	case TableReferenceType::BASE_TABLE: {
-		auto &base = ref.Cast<BaseTableRef>();
-		auto catalog = Catalog::GetCatalogEntry(context, base.catalog_name);
-		if (!catalog || catalog->GetCatalogType() != "altertable") {
+static bool RewriteAltertableUpdate(ClientContext &context, UpdateStatement &statement,
+                                    AltertableCatalog &target_catalog) {
+	unordered_set<string> statement_ctes;
+	for (auto &cte : statement.cte_map.map) {
+		statement_ctes.insert(cte.first);
+	}
+	for (auto &cte : statement.cte_map.map) {
+		if (!RewriteAltertableQueryNode(context, *cte.second->query->node, target_catalog, statement_ctes)) {
 			return false;
 		}
-		auto &altertable_catalog = catalog->Cast<AltertableCatalog>();
-		base.catalog_name = altertable_catalog.GetRemoteCatalog();
-		return true;
 	}
-	case TableReferenceType::JOIN: {
-		auto &join = ref.Cast<JoinRef>();
-		return RewriteAltertableTableRef(context, *join.left) && RewriteAltertableTableRef(context, *join.right);
-	}
-	case TableReferenceType::SUBQUERY: {
-		auto &subquery = ref.Cast<SubqueryRef>();
-		return RewriteAltertableQueryNode(context, *subquery.subquery->node);
-	}
-	default:
+	if (!RewriteAltertableTableRef(context, *statement.table, target_catalog, statement_ctes)) {
 		return false;
 	}
+	if (statement.from_table &&
+	    !RewriteAltertableTableRef(context, *statement.from_table, target_catalog, statement_ctes)) {
+		return false;
+	}
+	for (auto &expression : statement.set_info->expressions) {
+		if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, statement_ctes)) {
+			return false;
+		}
+	}
+	if (statement.set_info->condition &&
+	    !RewriteAltertableParsedExpression(context, *statement.set_info->condition, target_catalog, statement_ctes)) {
+		return false;
+	}
+	for (auto &expression : statement.returning_list) {
+		if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, statement_ctes)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool RewriteAltertableDelete(ClientContext &context, DeleteStatement &statement,
+                                    AltertableCatalog &target_catalog) {
+	unordered_set<string> statement_ctes;
+	for (auto &cte : statement.cte_map.map) {
+		statement_ctes.insert(cte.first);
+	}
+	for (auto &cte : statement.cte_map.map) {
+		if (!RewriteAltertableQueryNode(context, *cte.second->query->node, target_catalog, statement_ctes)) {
+			return false;
+		}
+	}
+	if (!RewriteAltertableTableRef(context, *statement.table, target_catalog, statement_ctes)) {
+		return false;
+	}
+	for (auto &using_clause : statement.using_clauses) {
+		if (!RewriteAltertableTableRef(context, *using_clause, target_catalog, statement_ctes)) {
+			return false;
+		}
+	}
+	if (statement.condition &&
+	    !RewriteAltertableParsedExpression(context, *statement.condition, target_catalog, statement_ctes)) {
+		return false;
+	}
+	for (auto &expression : statement.returning_list) {
+		if (!RewriteAltertableParsedExpression(context, *expression, target_catalog, statement_ctes)) {
+			return false;
+		}
+	}
+	return true;
 }
 
 static string NormalizeDeparsedSQL(string sql) {
@@ -353,7 +491,7 @@ static bool QueryContainsOffset(const string &query) {
 	return StringUtil::Contains(StringUtil::Lower(query), " offset ");
 }
 
-static unique_ptr<SelectStatement> ExtractAltertableSelectStatement(ClientContext &context) {
+static unique_ptr<SQLStatement> ExtractAltertableStatement(ClientContext &context) {
 	const auto &query = context.GetCurrentQuery();
 	if (query.empty()) {
 		return nullptr;
@@ -366,16 +504,20 @@ static unique_ptr<SelectStatement> ExtractAltertableSelectStatement(ClientContex
 	auto copied = parser.statements[0]->Copy();
 	if (copied->type == StatementType::EXPLAIN_STATEMENT) {
 		auto &explain = copied->Cast<ExplainStatement>();
-		if (!explain.stmt || explain.stmt->type != StatementType::SELECT_STATEMENT) {
+		if (!explain.stmt) {
 			return nullptr;
 		}
-		auto select = unique_ptr_cast<SQLStatement, SelectStatement>(explain.stmt->Copy());
-		return select;
+		return explain.stmt->Copy();
 	}
-	if (copied->type != StatementType::SELECT_STATEMENT) {
+	return copied;
+}
+
+static unique_ptr<SelectStatement> ExtractAltertableSelectStatement(ClientContext &context) {
+	auto statement = ExtractAltertableStatement(context);
+	if (!statement || statement->type != StatementType::SELECT_STATEMENT) {
 		return nullptr;
 	}
-	return unique_ptr_cast<SQLStatement, SelectStatement>(std::move(copied));
+	return unique_ptr_cast<SQLStatement, SelectStatement>(std::move(statement));
 }
 
 static bool ReplacePlanWithRemoteScan(ClientContext &context, unique_ptr<LogicalOperator> &plan,
@@ -426,7 +568,11 @@ static bool TryPushDeparsedQuery(ClientContext &context, unique_ptr<LogicalOpera
 	}
 
 	auto select = ExtractAltertableSelectStatement(context);
-	if (!select || !RewriteAltertableQueryNode(context, *select->node)) {
+	if (!select || !sources[0]->GetCatalog()) {
+		return false;
+	}
+	unordered_set<string> no_ctes;
+	if (!RewriteAltertableQueryNode(context, *select->node, *sources[0]->GetCatalog(), no_ctes)) {
 		return false;
 	}
 
@@ -505,8 +651,12 @@ private:
 		}
 		case ExpressionClass::BOUND_COMPARISON: {
 			auto &comparison = expr.Cast<BoundComparisonExpression>();
-			return "(" + RenderExpression(*comparison.left, bindings) + " " + ComparisonOperator(comparison.type) +
-			       " " + RenderExpression(*comparison.right, bindings) + ")";
+			string comparison_operator;
+			if (!TryGetAltertableComparisonOperator(comparison.type, comparison_operator)) {
+				throw NotImplementedException("Unsupported comparison for Altertable pushdown");
+			}
+			return "(" + RenderExpression(*comparison.left, bindings) + " " + comparison_operator + " " +
+			       RenderExpression(*comparison.right, bindings) + ")";
 		}
 		case ExpressionClass::BOUND_CONJUNCTION: {
 			auto &conjunction = expr.Cast<BoundConjunctionExpression>();
@@ -688,9 +838,12 @@ private:
 			if (table_col_idx >= bind_data.names.size()) {
 				throw NotImplementedException("Altertable filter table column out of range");
 			}
-			auto predicate = GetPredicateFromFilter(*entry.second, bind_data.names[table_col_idx]);
-			if (predicate.empty()) {
+			string predicate;
+			if (!TryGetAltertablePredicate(*entry.second, bind_data.names[table_col_idx], predicate)) {
 				throw NotImplementedException("Unsupported table filter for Altertable pushdown");
+			}
+			if (predicate.empty()) {
+				continue;
 			}
 			if (!filters.empty()) {
 				filters += " AND ";
@@ -873,7 +1026,7 @@ public:
 
 	InsertionOrderPreservingMap<string> ParamsToString() const override {
 		InsertionOrderPreservingMap<string> result;
-		result["Query"] = sql;
+		result["Query"] = AltertableUtils::QueryFingerprint(sql);
 		return result;
 	}
 
@@ -896,13 +1049,7 @@ private:
 };
 
 static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
-	string result;
-	if (!catalog.GetRemoteCatalog().empty()) {
-		result += AltertableUtils::QuoteAltertableIdentifier(catalog.GetRemoteCatalog()) + ".";
-	}
-	result += AltertableUtils::QuoteAltertableIdentifier(table.schema.name) + ".";
-	result += AltertableUtils::QuoteAltertableIdentifier(table.name);
-	return result;
+	return AltertableUtils::QualifiedTableReference(catalog.GetRemoteCatalog(), table.schema.name, table.name);
 }
 
 static string AltertableInsertColumnList(const AltertableTableEntry &table) {
@@ -911,6 +1058,178 @@ static string AltertableInsertColumnList(const AltertableTableEntry &table) {
 		columns.push_back(AltertableUtils::QuoteAltertableIdentifier(name));
 	}
 	return "(" + StringUtil::Join(columns, ", ") + ")";
+}
+
+static bool PlanUsesOnlyAltertableDMLSources(LogicalOperator &op, AltertableCatalog &target_catalog) {
+	switch (op.type) {
+	case LogicalOperatorType::LOGICAL_GET: {
+		auto &get = op.Cast<LogicalGet>();
+		if (!IsAltertableScanTableFunction(get.function) || !get.bind_data) {
+			return false;
+		}
+		auto &bind_data = get.bind_data->Cast<AltertableBindData>();
+		return bind_data.sql.empty() && bind_data.GetCatalog().get() == &target_catalog;
+	}
+	case LogicalOperatorType::LOGICAL_EXPRESSION_GET:
+	case LogicalOperatorType::LOGICAL_DUMMY_SCAN:
+	case LogicalOperatorType::LOGICAL_EMPTY_RESULT:
+	case LogicalOperatorType::LOGICAL_CTE_REF:
+	case LogicalOperatorType::LOGICAL_DELIM_GET:
+		return true;
+	default:
+		if (op.children.empty()) {
+			return false;
+		}
+		for (auto &child : op.children) {
+			if (!PlanUsesOnlyAltertableDMLSources(*child, target_catalog)) {
+				return false;
+			}
+		}
+		return true;
+	}
+}
+
+static bool FindAltertableDMLSource(LogicalOperator &op, AltertableCatalog &target_catalog,
+                                    AltertableBindData *&source) {
+	if (op.type == LogicalOperatorType::LOGICAL_GET) {
+		auto &get = op.Cast<LogicalGet>();
+		if (!IsAltertableScanTableFunction(get.function) || !get.bind_data) {
+			return false;
+		}
+		auto &bind_data = get.bind_data->Cast<AltertableBindData>();
+		if (!bind_data.sql.empty() || bind_data.GetCatalog().get() != &target_catalog) {
+			return false;
+		}
+		if (!source) {
+			source = &bind_data;
+			return true;
+		}
+		return source->dsn == bind_data.dsn && source->attach_path == bind_data.attach_path;
+	}
+	if (op.type == LogicalOperatorType::LOGICAL_EXPRESSION_GET || op.type == LogicalOperatorType::LOGICAL_DUMMY_SCAN ||
+	    op.type == LogicalOperatorType::LOGICAL_EMPTY_RESULT || op.type == LogicalOperatorType::LOGICAL_CTE_REF ||
+	    op.type == LogicalOperatorType::LOGICAL_DELIM_GET) {
+		return true;
+	}
+	if (op.children.empty()) {
+		return false;
+	}
+	for (auto &child : op.children) {
+		if (!FindAltertableDMLSource(*child, target_catalog, source)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool AltertableLimitPushdownOptimizer::TryPushRemoteDMLReturning(ClientContext &context,
+                                                                 unique_ptr<LogicalOperator> &plan) {
+	if (plan->type != LogicalOperatorType::LOGICAL_PROJECTION || plan->children.size() != 1) {
+		return false;
+	}
+
+	auto &projection = plan->Cast<LogicalProjection>();
+	auto &dml = *plan->children[0];
+	AltertableCatalog *target_catalog = nullptr;
+	if (dml.type == LogicalOperatorType::LOGICAL_UPDATE) {
+		auto &update = dml.Cast<LogicalUpdate>();
+		if (!update.return_chunk || update.table.catalog.GetCatalogType() != "altertable") {
+			return false;
+		}
+		target_catalog = &update.table.catalog.Cast<AltertableCatalog>();
+	} else if (dml.type == LogicalOperatorType::LOGICAL_DELETE) {
+		auto &del = dml.Cast<LogicalDelete>();
+		if (!del.return_chunk || del.table.catalog.GetCatalogType() != "altertable") {
+			return false;
+		}
+		target_catalog = &del.table.catalog.Cast<AltertableCatalog>();
+	} else {
+		return false;
+	}
+
+	if (target_catalog->access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot modify read-only Altertable database");
+	}
+	AltertableBindData *source = nullptr;
+	if (dml.children.size() != 1 || !FindAltertableDMLSource(*dml.children[0], *target_catalog, source) || !source) {
+		return false;
+	}
+
+	auto statement = ExtractAltertableStatement(context);
+	if (!statement) {
+		return false;
+	}
+	bool rewritten = false;
+	if (dml.type == LogicalOperatorType::LOGICAL_UPDATE && statement->type == StatementType::UPDATE_STATEMENT) {
+		rewritten = RewriteAltertableUpdate(context, statement->Cast<UpdateStatement>(), *target_catalog);
+	} else if (dml.type == LogicalOperatorType::LOGICAL_DELETE && statement->type == StatementType::DELETE_STATEMENT) {
+		rewritten = RewriteAltertableDelete(context, statement->Cast<DeleteStatement>(), *target_catalog);
+	}
+	if (!rewritten) {
+		return false;
+	}
+
+	vector<string> names;
+	names.reserve(projection.expressions.size());
+	for (auto &expression : projection.expressions) {
+		names.push_back(expression->GetName());
+	}
+	auto types = projection.types;
+	if (types.empty()) {
+		for (auto &expression : projection.expressions) {
+			types.push_back(expression->return_type);
+		}
+	}
+	if (types.empty() || names.empty() || types.size() != names.size()) {
+		return false;
+	}
+
+	return ReplacePlanWithRemoteScan(context, plan, *source, NormalizeDeparsedSQL(statement->ToString()),
+	                                 std::move(names), std::move(types));
+}
+
+bool AltertableLimitPushdownOptimizer::TryPushRemoteDML(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
+	AltertableCatalog *target_catalog = nullptr;
+	if (plan->type == LogicalOperatorType::LOGICAL_UPDATE) {
+		auto &update = plan->Cast<LogicalUpdate>();
+		if (update.return_chunk || update.table.catalog.GetCatalogType() != "altertable") {
+			return false;
+		}
+		target_catalog = &update.table.catalog.Cast<AltertableCatalog>();
+	} else if (plan->type == LogicalOperatorType::LOGICAL_DELETE) {
+		auto &del = plan->Cast<LogicalDelete>();
+		if (del.return_chunk || del.table.catalog.GetCatalogType() != "altertable") {
+			return false;
+		}
+		target_catalog = &del.table.catalog.Cast<AltertableCatalog>();
+	} else {
+		return false;
+	}
+
+	if (target_catalog->access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot modify read-only Altertable database");
+	}
+	if (plan->children.size() != 1 || !PlanUsesOnlyAltertableDMLSources(*plan->children[0], *target_catalog)) {
+		return false;
+	}
+
+	auto statement = ExtractAltertableStatement(context);
+	if (!statement) {
+		return false;
+	}
+	bool rewritten = false;
+	if (plan->type == LogicalOperatorType::LOGICAL_UPDATE && statement->type == StatementType::UPDATE_STATEMENT) {
+		rewritten = RewriteAltertableUpdate(context, statement->Cast<UpdateStatement>(), *target_catalog);
+	} else if (plan->type == LogicalOperatorType::LOGICAL_DELETE &&
+	           statement->type == StatementType::DELETE_STATEMENT) {
+		rewritten = RewriteAltertableDelete(context, statement->Cast<DeleteStatement>(), *target_catalog);
+	}
+	if (!rewritten) {
+		return false;
+	}
+
+	plan = make_uniq<LogicalAltertableExecuteUpdate>(*target_catalog, NormalizeDeparsedSQL(statement->ToString()));
+	return true;
 }
 
 bool AltertableLimitPushdownOptimizer::TryPushRemoteInsert(ClientContext &context, unique_ptr<LogicalOperator> &plan) {
@@ -995,6 +1314,12 @@ static bool CanPushLimitThrough(LogicalOperatorType type) {
 void AltertableLimitPushdownOptimizer::OptimizeRecursive(ClientContext &context, unique_ptr<LogicalOperator> &op,
                                                          optional_idx parent_limit, bool is_root) {
 	if (is_root && TryPushRemoteInsert(context, op)) {
+		return;
+	}
+	if (is_root && TryPushRemoteDMLReturning(context, op)) {
+		return;
+	}
+	if (is_root && TryPushRemoteDML(context, op)) {
 		return;
 	}
 	// Whole-query pushdown must only run at the plan root. Running it on nested

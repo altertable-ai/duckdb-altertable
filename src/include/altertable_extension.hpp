@@ -11,6 +11,7 @@ public:
 	std::string Name() override {
 		return "altertable";
 	}
+	std::string Version() const override;
 	void Load(ExtensionLoader &loader) override;
 };
 

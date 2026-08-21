@@ -12,6 +12,12 @@ namespace duckdb {
 
 static bool debug_altertable_print_queries = false;
 
+static void DebugPrintQueryFingerprint(const string &query) {
+	if (debug_altertable_print_queries) {
+		Printer::Print("Altertable " + AltertableUtils::QueryFingerprint(query) + "\n");
+	}
+}
+
 static void SetAltertableSessionOption(arrow::flight::sql::FlightSqlClient &sql_client,
                                        arrow::flight::FlightCallOptions &call_options, const string &session_key,
                                        const string &value, const string &option_label) {
@@ -106,9 +112,7 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 }
 
 std::unique_ptr<arrow::flight::FlightInfo> AltertableConnection::Execute(const string &query) {
-	if (DebugPrintQueries()) {
-		Printer::Print(query + "\n");
-	}
+	DebugPrintQueryFingerprint(query);
 
 	auto result = GetClient()->Execute(GetCallOptions(), query);
 	if (!result.ok()) {
@@ -118,9 +122,7 @@ std::unique_ptr<arrow::flight::FlightInfo> AltertableConnection::Execute(const s
 }
 
 std::shared_ptr<arrow::Schema> AltertableConnection::GetExecuteSchema(const string &query) {
-	if (DebugPrintQueries()) {
-		Printer::Print(query + "\n");
-	}
+	DebugPrintQueryFingerprint(query);
 
 	auto result = GetClient()->GetExecuteSchema(GetCallOptions(), query);
 	arrow::ipc::DictionaryMemo memo;
@@ -140,9 +142,7 @@ std::shared_ptr<arrow::Schema> AltertableConnection::GetExecuteSchema(const stri
 }
 
 int64_t AltertableConnection::ExecuteUpdate(const string &query) {
-	if (DebugPrintQueries()) {
-		Printer::Print(query + "\n");
-	}
+	DebugPrintQueryFingerprint(query);
 
 	auto result = GetClient()->ExecuteUpdate(GetCallOptions(), query);
 	if (!result.ok()) {

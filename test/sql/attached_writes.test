@@ -99,6 +99,9 @@ CREATE TABLE write_db.main.__attached_remote_insert_dst (id INTEGER, name VARCHA
 statement ok
 INSERT INTO write_db.main.__attached_remote_insert_src VALUES (10, 'ten'), (20, 'twenty'), (30, 'thirty')
 
+statement ok
+INSERT INTO write_db.main.__attached_remote_insert_src VALUES (1, 'from-one'), (2, 'from-two')
+
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
 ----
@@ -113,15 +116,182 @@ SELECT id, name FROM write_db.main.__attached_remote_insert_dst ORDER BY id
 20	twenty
 30	thirty
 
-statement error
+query II
+EXPLAIN UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1
+----
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+
+query I
 UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1
 ----
-UPDATE of Altertable attached tables is not supported
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 1
+----
+1	updated
+
+query I
+UPDATE write_db.main.__attached_writes AS target
+SET name = source.name
+FROM write_db.main.__attached_remote_insert_src AS source
+WHERE target.id = source.id AND source.id = 2
+----
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 2
+----
+2	from-two
+
+query I
+UPDATE write_db.main.__attached_writes
+SET name = 'subquery'
+WHERE id IN (
+    SELECT id FROM write_db.main.__attached_remote_insert_src WHERE id = 2
+)
+----
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 2
+----
+2	subquery
+
+query I
+WITH ids AS (
+    SELECT id FROM write_db.main.__attached_remote_insert_src WHERE id = 1
+)
+DELETE FROM write_db.main.__attached_writes AS target
+USING ids
+WHERE target.id = ids.id
+----
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes ORDER BY id
+----
+2	subquery
+3	gamma
+4	delta
+
+query I
+DELETE FROM write_db.main.__attached_writes AS target
+USING write_db.main.__attached_remote_insert_src AS source
+WHERE target.id = source.id AND source.id = 2
+----
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes ORDER BY id
+----
+3	gamma
+4	delta
+
+query I
+DELETE FROM write_db.main.__attached_writes WHERE id = 999
+----
+0
+
+query I
+SELECT COUNT(*) FROM write_db.main.__attached_writes
+----
+2
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS second_db (TYPE ALTERTABLE)
 
 statement error
-DELETE FROM write_db.main.__attached_writes WHERE id = 1
+UPDATE write_db.main.__attached_writes AS target
+SET name = source.name
+FROM second_db.main.__attached_remote_insert_src AS source
+WHERE target.id = source.id
 ----
-DELETE from Altertable attached tables is not supported
+UPDATE of Altertable attached tables is not supported by DuckDB's row-id write path yet; use altertable_execute() to forward a remote UPDATE statement
+
+statement ok
+DETACH second_db
+
+statement ok
+CREATE TABLE __local_update_source (name VARCHAR)
+
+statement ok
+INSERT INTO __local_update_source VALUES ('local')
+
+query II
+EXPLAIN UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 3 RETURNING id, name
+----
+physical_plan	<REGEX>:.*ALTERTABLE_SCAN.*
+
+statement error
+UPDATE write_db.main.__attached_writes AS target
+SET name = local_name.name
+FROM __local_update_source AS local_name
+WHERE target.id = 3
+RETURNING target.id
+----
+UPDATE ... RETURNING is not supported for Altertable attached tables; use altertable_execute() to forward a remote UPDATE statement
+
+query IT
+UPDATE write_db.main.__attached_writes
+SET name = 'qualified'
+WHERE write_db.main.__attached_writes.id = 3
+RETURNING write_db.main.__attached_writes.id, name
+----
+3	qualified
+
+query I
+UPDATE write_db.main.__attached_writes
+SET name = 'modifier'
+WHERE id = 3
+  AND 3 IN (
+      SELECT 3
+      FROM write_db.main.__attached_remote_insert_src
+      ORDER BY write_db.main.__attached_remote_insert_src.id DESC
+      LIMIT 1
+  )
+RETURNING id
+----
+3
+
+query ITR
+UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 3 RETURNING *
+----
+3	invalid	NULL
+
+query I
+DELETE FROM write_db.main.__attached_writes WHERE id = 3 RETURNING id
+----
+3
+
+query IT
+UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 999 RETURNING id, name
+----
+
+query IT
+UPDATE write_db.main.__attached_writes AS target
+SET name = source.name
+FROM write_db.main.__attached_remote_insert_src AS source
+WHERE target.id = 4 AND source.id = 2
+RETURNING target.id + 1 AS next_id, target.name AS copied_name
+----
+5	from-two
+
+query IT
+DELETE FROM write_db.main.__attached_writes AS target
+USING write_db.main.__attached_remote_insert_src AS source
+WHERE target.id = 4 AND source.id = 2
+RETURNING target.id, target.name
+----
+4	from-two
+
+statement error
+UPDATE write_db.main.__attached_writes AS target
+SET name = local_name.name
+FROM __local_update_source AS local_name
+WHERE target.id = 1
+----
+UPDATE of Altertable attached tables is not supported by DuckDB's row-id write path yet; use altertable_execute() to forward a remote UPDATE statement
 
 statement ok
 DROP TABLE write_db.main.__attached_large_insert
@@ -137,6 +307,9 @@ DROP TABLE write_db.main.__attached_ctas
 
 statement ok
 DROP TABLE write_db.main.__attached_writes
+
+statement ok
+DROP TABLE __local_update_source
 
 statement ok
 DETACH write_db

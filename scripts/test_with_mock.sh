@@ -49,9 +49,24 @@ else
   }
   trap cleanup EXIT
 
-  echo "==> Waiting for altertable-mock to be ready ..."
+  echo "==> Waiting for altertable-mock to accept connections ..."
   PORT=$(docker inspect --format '{{(index (index .NetworkSettings.Ports "15002/tcp") 0).HostPort}}' "${CONTAINER_NAME}")
-  sleep 5 # TODO: ping Arrow Flight SQL
+  ready_checks=0
+  for _ in {1..30}; do
+    if (echo >"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+      ready_checks=$((ready_checks + 1))
+      if [[ "${ready_checks}" -ge 5 ]]; then
+        break
+      fi
+    else
+      ready_checks=0
+    fi
+    sleep 1
+  done
+  if ! (echo >"/dev/tcp/127.0.0.1/${PORT}") 2>/dev/null; then
+    echo "ERROR: altertable-mock did not accept connections on port ${PORT}." >&2
+    exit 1
+  fi
   echo "==> altertable-mock is ready on port ${PORT}."
   HOST="127.0.0.1"
 fi

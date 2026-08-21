@@ -116,6 +116,14 @@ void AltertableExtension::Load(ExtensionLoader &loader) {
 	LoadInternal(loader);
 }
 
+std::string AltertableExtension::Version() const {
+#ifdef EXT_VERSION_ALTERTABLE
+	return EXT_VERSION_ALTERTABLE;
+#else
+	return "";
+#endif
+}
+
 extern "C" {
 
 DUCKDB_CPP_EXTENSION_ENTRY(altertable, loader) {

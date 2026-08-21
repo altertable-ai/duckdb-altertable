@@ -31,6 +31,7 @@ public:
 
 	bool HasConnection();
 	AltertableConnection &GetConnection();
+	void Discard();
 
 private:
 	optional_ptr<AltertableConnectionPool> pool;
@@ -48,6 +49,7 @@ public:
 	bool TryGetConnection(AltertablePoolConnection &connection);
 	AltertablePoolConnection GetConnection();
 	void ReturnConnection(AltertableConnection connection);
+	void DiscardConnection(AltertableConnection connection);
 
 	static void AltertableSetConnectionCache(ClientContext &context, SetScope scope, Value &parameter);
 

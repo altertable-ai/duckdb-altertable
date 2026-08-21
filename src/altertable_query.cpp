@@ -16,22 +16,29 @@ static unique_ptr<FunctionData> AltertableQueryBind(ClientContext &context, Tabl
 	// Check if dsn_or_db is an attached database name
 	auto &db_manager = DatabaseManager::Get(context);
 	auto db = db_manager.GetDatabase(context, dsn_or_db);
+	optional_ptr<AltertableCatalog> attached_catalog;
 	if (db && db->GetCatalog().GetCatalogType() == "altertable") {
 		auto &altertable_catalog = db->GetCatalog().Cast<AltertableCatalog>();
 		dsn = altertable_catalog.connection_string;
+		attached_catalog = &altertable_catalog;
 	}
 
 	auto bind_data = make_uniq<AltertableBindData>(context);
 	bind_data->dsn = dsn;
 	bind_data->sql = query;
-	bind_data->attach_path = dsn;
-	// Note: we intentionally do NOT set the catalog here
-	// This ensures the scanner uses fresh connections, avoiding transaction state issues
+	bind_data->attach_path = dsn_or_db;
+	if (attached_catalog) {
+		bind_data->SetCatalog(*attached_catalog);
+	}
 
-	// Open a fresh connection for schema discovery
-	auto con = AltertableConnection::Open(dsn);
-
-	auto schema = con.GetExecuteSchema(query);
+	std::shared_ptr<arrow::Schema> schema;
+	if (attached_catalog) {
+		auto &transaction = Transaction::Get(context, *attached_catalog).Cast<AltertableTransaction>();
+		schema = transaction.GetConnection().GetExecuteSchema(query);
+	} else {
+		auto con = AltertableConnection::Open(dsn);
+		schema = con.GetExecuteSchema(query);
+	}
 
 	for (int i = 0; i < schema->num_fields(); i++) {
 		auto field = schema->field(i);

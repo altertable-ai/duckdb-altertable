@@ -1,6 +1,12 @@
 #include "altertable_utils.hpp"
 #include "storage/altertable_schema_entry.hpp"
 #include "storage/altertable_transaction.hpp"
+#include "duckdb/planner/filter/conjunction_filter.hpp"
+#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/filter/null_filter.hpp"
+#include "duckdb/planner/filter/optional_filter.hpp"
+#include "duckdb/planner/table_filter.hpp"
+#include <functional>
 
 namespace duckdb {
 
@@ -13,7 +19,7 @@ static bool NeedsDSNQuoting(const string &value) {
 	return value.empty();
 }
 
-static string QuoteDSNValue(const string &value) {
+string AltertableUtils::QuoteDSNValue(const string &value) {
 	if (!NeedsDSNQuoting(value)) {
 		return value;
 	}
@@ -28,72 +34,100 @@ static string QuoteDSNValue(const string &value) {
 	return result;
 }
 
-static string ReadDSNToken(const string &dsn, idx_t &pos) {
-	while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
-		pos++;
-	}
-	string result;
-	if (pos >= dsn.size()) {
-		return result;
-	}
-	if (dsn[pos] == '\'' || dsn[pos] == '"') {
-		auto quote = dsn[pos++];
-		while (pos < dsn.size()) {
-			auto c = dsn[pos++];
-			if (c == '\\' && pos < dsn.size()) {
-				result += dsn[pos++];
-				continue;
-			}
-			if (c == quote) {
-				break;
-			}
-			result += c;
-		}
-		return result;
-	}
-	while (pos < dsn.size() && !StringUtil::CharacterIsSpace(dsn[pos])) {
-		result += dsn[pos++];
-	}
-	return result;
+string AltertableUtils::QueryFingerprint(const string &query) {
+	return StringUtil::Format("remote SQL (%llu bytes, fingerprint %llu)", query.size(), std::hash<string> {}(query));
 }
 
-static string UnquoteDSNValue(const string &value) {
-	if (value.size() < 2) {
-		return value;
-	}
-	auto quote = value[0];
-	if ((quote != '\'' && quote != '"') || value[value.size() - 1] != quote) {
-		return value;
-	}
+string AltertableUtils::QualifiedTableReference(const string &catalog, const string &schema, const string &table) {
 	string result;
-	for (idx_t i = 1; i + 1 < value.size(); i++) {
-		if (value[i] == '\\' && i + 2 < value.size()) {
-			result += value[++i];
-			continue;
-		}
-		result += value[i];
+	if (!catalog.empty()) {
+		result += QuoteAltertableIdentifier(catalog) + ".";
 	}
-	return result;
+	return result + QuoteAltertableIdentifier(schema) + "." + QuoteAltertableIdentifier(table);
 }
 
 AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) {
 	AltertableConnectionConfig result;
+	if (dsn.find('=') == string::npos) {
+		idx_t start = 0;
+		while (start < dsn.size() && StringUtil::CharacterIsSpace(dsn[start])) {
+			start++;
+		}
+		idx_t end = dsn.size();
+		while (end > start && StringUtil::CharacterIsSpace(dsn[end - 1])) {
+			end--;
+		}
+		if (start == end) {
+			return result;
+		}
+		for (idx_t i = start; i < end; i++) {
+			if (StringUtil::CharacterIsSpace(dsn[i])) {
+				throw InvalidInputException("Invalid ALTERTABLE catalog shorthand: expected a single word");
+			}
+		}
+		result.catalog = dsn.substr(start, end - start);
+		result.has_catalog = true;
+		return result;
+	}
 	idx_t pos = 0;
 	while (pos < dsn.size()) {
-		auto token = ReadDSNToken(dsn, pos);
-		if (token.empty()) {
-			continue;
+		while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
+			pos++;
 		}
-		auto equals = token.find('=');
-		if (equals == string::npos) {
-			continue;
+		if (pos >= dsn.size()) {
+			break;
 		}
-		auto key = StringUtil::Lower(token.substr(0, equals));
-		auto value = token.substr(equals + 1);
-		if ((value.empty() || value == "'" || value == "\"") && pos < dsn.size()) {
-			value = ReadDSNToken(dsn, pos);
+
+		auto key_start = pos;
+		while (pos < dsn.size() && dsn[pos] != '=' && !StringUtil::CharacterIsSpace(dsn[pos])) {
+			pos++;
 		}
-		value = UnquoteDSNValue(value);
+		if (key_start == pos) {
+			throw InvalidInputException("Invalid ALTERTABLE connection string near position %llu", pos);
+		}
+		auto key = StringUtil::Lower(dsn.substr(key_start, pos - key_start));
+		while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
+			pos++;
+		}
+		if (pos >= dsn.size() || dsn[pos] != '=') {
+			throw InvalidInputException("Invalid ALTERTABLE connection string: key '%s' has no value", key);
+		}
+		pos++;
+		while (pos < dsn.size() && StringUtil::CharacterIsSpace(dsn[pos])) {
+			pos++;
+		}
+
+		string value;
+		if (pos < dsn.size() && (dsn[pos] == '\'' || dsn[pos] == '"')) {
+			auto quote = dsn[pos++];
+			bool closed = false;
+			while (pos < dsn.size()) {
+				auto c = dsn[pos++];
+				if (c == '\\' && pos < dsn.size()) {
+					value += dsn[pos++];
+					continue;
+				}
+				if (c == quote) {
+					closed = true;
+					break;
+				}
+				value += c;
+			}
+			if (!closed) {
+				throw InvalidInputException("Invalid ALTERTABLE connection string: unterminated value for key '%s'",
+				                            key);
+			}
+			if (pos < dsn.size() && !StringUtil::CharacterIsSpace(dsn[pos])) {
+				throw InvalidInputException(
+				    "Invalid ALTERTABLE connection string: unexpected characters after key '%s'", key);
+			}
+		} else {
+			auto value_start = pos;
+			while (pos < dsn.size() && !StringUtil::CharacterIsSpace(dsn[pos])) {
+				pos++;
+			}
+			value = dsn.substr(value_start, pos - value_start);
+		}
 
 		if (key == "host") {
 			result.host = value;
@@ -133,6 +167,8 @@ AltertableConnectionConfig AltertableConnectionConfig::Parse(const string &dsn) 
 		} else if (key == "compute_size") {
 			result.compute_size = value;
 			result.has_compute_size = true;
+		} else {
+			throw InvalidInputException("Unknown ALTERTABLE connection string key '%s'", key);
 		}
 	}
 	return result;
@@ -144,7 +180,7 @@ string AltertableConnectionConfig::ToDSN(bool redact_password) const {
 		if (!result.empty()) {
 			result += " ";
 		}
-		result += key + "=" + QuoteDSNValue(value);
+		result += key + "=" + AltertableUtils::QuoteDSNValue(value);
 	};
 	if (has_host || host != "flight.altertable.ai") {
 		append("host", host);
@@ -382,6 +418,94 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+}
+
+bool TryGetAltertableComparisonOperator(ExpressionType type, string &result) {
+	switch (type) {
+	case ExpressionType::COMPARE_EQUAL:
+		result = "=";
+		return true;
+	case ExpressionType::COMPARE_NOTEQUAL:
+		result = "<>";
+		return true;
+	case ExpressionType::COMPARE_LESSTHAN:
+		result = "<";
+		return true;
+	case ExpressionType::COMPARE_GREATERTHAN:
+		result = ">";
+		return true;
+	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
+		result = "<=";
+		return true;
+	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
+		result = ">=";
+		return true;
+	case ExpressionType::COMPARE_DISTINCT_FROM:
+		result = "IS DISTINCT FROM";
+		return true;
+	case ExpressionType::COMPARE_NOT_DISTINCT_FROM:
+		result = "IS NOT DISTINCT FROM";
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool TryGetAltertablePredicate(TableFilter &filter, const string &column_name, string &predicate) {
+	auto render_conjunction = [&](auto &child_filters, const string &conjunction_operator) {
+		string result;
+		for (auto &child_filter : child_filters) {
+			string child_predicate;
+			if (!TryGetAltertablePredicate(*child_filter, column_name, child_predicate)) {
+				return false;
+			}
+			if (child_predicate.empty()) {
+				continue;
+			}
+			if (!result.empty()) {
+				result += conjunction_operator;
+			}
+			result += "(" + child_predicate + ")";
+		}
+		predicate = std::move(result);
+		return true;
+	};
+
+	switch (filter.filter_type) {
+	case TableFilterType::CONSTANT_COMPARISON: {
+		auto &constant_filter = filter.Cast<ConstantFilter>();
+		string comparison_operator;
+		if (!TryGetAltertableComparisonOperator(constant_filter.comparison_type, comparison_operator)) {
+			return false;
+		}
+		predicate = AltertableUtils::QuoteAltertableIdentifier(column_name) + " " + comparison_operator + " " +
+		            constant_filter.constant.ToSQLString();
+		return true;
+	}
+	case TableFilterType::CONJUNCTION_AND:
+		return render_conjunction(filter.Cast<ConjunctionAndFilter>().child_filters, " AND ");
+	case TableFilterType::CONJUNCTION_OR:
+		return render_conjunction(filter.Cast<ConjunctionOrFilter>().child_filters, " OR ");
+	case TableFilterType::OPTIONAL_FILTER: {
+		auto &optional_filter = filter.Cast<OptionalFilter>();
+		if (!optional_filter.child_filter) {
+			predicate.clear();
+			return true;
+		}
+		if (!TryGetAltertablePredicate(*optional_filter.child_filter, column_name, predicate)) {
+			predicate.clear();
+		}
+		return true;
+	}
+	case TableFilterType::IS_NULL:
+		predicate = AltertableUtils::QuoteAltertableIdentifier(column_name) + " IS NULL";
+		return true;
+	case TableFilterType::IS_NOT_NULL:
+		predicate = AltertableUtils::QuoteAltertableIdentifier(column_name) + " IS NOT NULL";
+		return true;
+	default:
+		return false;
+	}
 }
 
 } // namespace duckdb

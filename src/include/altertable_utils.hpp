@@ -13,6 +13,8 @@
 #include "arrow/type.h"
 
 namespace duckdb {
+class TableFilter;
+
 struct AltertableTypeData {
 	string type_name;
 	int32_t numeric_precision = 0;
@@ -48,7 +50,15 @@ public:
 	static string TypeToString(const LogicalType &input);
 	static LogicalType RemoveAlias(const LogicalType &type);
 	static string QuoteAltertableIdentifier(const string &text);
+	static string QuoteDSNValue(const string &value);
+	static string QueryFingerprint(const string &query);
+	static string QualifiedTableReference(const string &catalog, const string &schema, const string &table);
 };
+
+//! Render a DuckDB table filter as Altertable SQL. Returns false when the
+//! complete filter tree cannot be represented safely.
+bool TryGetAltertablePredicate(TableFilter &filter, const string &column_name, string &predicate);
+bool TryGetAltertableComparisonOperator(ExpressionType type, string &comparison_operator);
 
 //! Map Arrow column types to DuckDB logical types (shared by scans and altertable_query).
 LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type);

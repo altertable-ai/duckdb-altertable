@@ -28,7 +28,11 @@ static unique_ptr<Catalog> AltertableAttach(optional_ptr<StorageExtensionInfo> s
 		}
 	}
 	auto connection_string = AltertableCatalog::GetConnectionString(context, attach_path, secret_name);
-	return make_uniq<AltertableCatalog>(db, std::move(connection_string), std::move(attach_path),
+	auto display_path = attach_path;
+	if (secret_name.empty() && !display_path.empty()) {
+		display_path = AltertableConnectionConfig::Parse(connection_string).ToDSN(true);
+	}
+	return make_uniq<AltertableCatalog>(db, std::move(connection_string), std::move(display_path),
 	                                    attach_options.access_mode, std::move(schema_to_load));
 }
 

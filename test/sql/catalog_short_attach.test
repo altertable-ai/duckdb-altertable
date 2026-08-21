@@ -1,0 +1,39 @@
+# name: test/sql/catalog_short_attach.test
+# description: A single-word ATTACH path is interpreted as the remote catalog
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+CREATE SECRET __short_catalog_attach (
+    TYPE altertable,
+    HOST '${ALTERTABLE_TEST_HOST}',
+    PORT '${ALTERTABLE_TEST_PORT}',
+    USER '${ALTERTABLE_TEST_USER}',
+    PASSWORD '${ALTERTABLE_TEST_PASSWORD}',
+    SSL '${ALTERTABLE_TEST_SSL}'
+)
+
+statement ok
+ATTACH 'analytics' AS __short_catalog_db (TYPE ALTERTABLE, SECRET __short_catalog_attach)
+
+query I
+SELECT COUNT(*) FROM duckdb_databases() WHERE database_name = '__short_catalog_db'
+----
+1
+
+statement ok
+DETACH __short_catalog_db
+
+statement ok
+DROP SECRET __short_catalog_attach
