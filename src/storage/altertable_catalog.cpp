@@ -107,6 +107,17 @@ AltertableCatalog::~AltertableCatalog() = default;
 void AltertableCatalog::Initialize(bool load_builtin) {
 }
 
+void AltertableCatalog::ValidateConnection() {
+	auto pool_con = connection_pool.GetConnection();
+	try {
+		auto result = pool_con.GetConnection().Query("SELECT 1");
+		(void)result;
+	} catch (...) {
+		pool_con.Discard();
+		throw;
+	}
+}
+
 optional_ptr<CatalogEntry> AltertableCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto &altertable_transaction = AltertableTransaction::Get(transaction.GetContext(), *this);
 	auto entry = schemas.GetEntry(altertable_transaction, info.schema);

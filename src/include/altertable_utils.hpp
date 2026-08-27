@@ -9,6 +9,7 @@
 #pragma once
 
 #include "duckdb.hpp"
+#include "arrow/array.h"
 #include "arrow/flight/sql/client.h"
 #include "arrow/type.h"
 
@@ -62,5 +63,8 @@ bool TryGetAltertableComparisonOperator(ExpressionType type, string &comparison_
 
 //! Map Arrow column types to DuckDB logical types (shared by scans and altertable_query).
 LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type);
+
+//! Convert `count` values from `array` starting at `offset` into `vector`.
+void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_t offset, idx_t count);
 
 } // namespace duckdb

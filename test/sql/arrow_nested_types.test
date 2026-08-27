@@ -1,0 +1,99 @@
+# name: test/sql/arrow_nested_types.test
+# description: JSON, LIST, MAP, and unnamed STRUCT round-trip through attached scans and altertable_query
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS nested_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('nested_db', 'DROP TABLE IF EXISTS __nested_arrow')
+
+# JSON is mapped from Arrow's arrow.json extension when the server sends it.
+# This suite does not build the json extension, so store JSON text as VARCHAR
+# and still exercise LIST/MAP (and nested lists) through the shared converter.
+statement ok
+CREATE TABLE nested_db.main.__nested_arrow (
+    id INTEGER,
+    j VARCHAR,
+    tags VARCHAR[],
+    nested INTEGER[][],
+    kv MAP(VARCHAR, INTEGER)
+)
+
+statement ok
+INSERT INTO nested_db.main.__nested_arrow VALUES
+    (1, '{"a": 1}', ['x', 'y'], [[1, 2], [3]], MAP {'k': 1, 'm': 2}),
+    (2, NULL, NULL, NULL, NULL),
+    (3, '{"n": null}', [NULL, 'z'], [[], [NULL, 4]], MAP {'a': NULL})
+
+query ITTTT
+SELECT id, j::VARCHAR, tags::VARCHAR, nested::VARCHAR, kv::VARCHAR
+FROM nested_db.main.__nested_arrow
+ORDER BY id
+----
+1	{"a": 1}	[x, y]	[[1, 2], [3]]	{k=1, m=2}
+2	NULL	NULL	NULL	NULL
+3	{"n": null}	[NULL, z]	[[], [NULL, 4]]	{a=NULL}
+
+query ITTTT
+SELECT id, j::VARCHAR, tags::VARCHAR, nested::VARCHAR, kv::VARCHAR
+FROM altertable_query('nested_db', 'SELECT id, j, tags, nested, kv FROM main.__nested_arrow ORDER BY id')
+----
+1	{"a": 1}	[x, y]	[[1, 2], [3]]	{k=1, m=2}
+2	NULL	NULL	NULL	NULL
+3	{"n": null}	[NULL, z]	[[], [NULL, 4]]	{a=NULL}
+
+statement ok
+CALL altertable_execute('nested_db', 'DROP TABLE __nested_arrow')
+
+# Unnamed STRUCT via CTAS — parquet-inferred structs have no CREATE TYPE alias.
+# This is the customer path: CREATE TABLE remote AS SELECT * FROM read_parquet(...)
+# where a column is STRUCT("name" VARCHAR, body VARCHAR).
+statement ok
+CALL altertable_execute('nested_db', 'DROP TABLE IF EXISTS __nested_struct')
+
+statement ok
+CREATE TABLE nested_db.main.__nested_struct AS
+SELECT * FROM (VALUES
+    (1, {'name': 'Nmap Scripting Engine Scanner Over HTTP Request', 'body': 'somebody'}::STRUCT("name" VARCHAR, body VARCHAR)),
+    (2, NULL::STRUCT("name" VARCHAR, body VARCHAR))
+) t(id, protection_name)
+
+query TT
+SELECT column_name, column_type FROM (DESCRIBE nested_db.main.__nested_struct) ORDER BY column_name
+----
+id	INTEGER
+protection_name	STRUCT("name" VARCHAR, body VARCHAR)
+
+query ITT
+SELECT id, protection_name."name", protection_name.body
+FROM nested_db.main.__nested_struct
+ORDER BY id
+----
+1	Nmap Scripting Engine Scanner Over HTTP Request	somebody
+2	NULL	NULL
+
+query ITT
+SELECT id, protection_name."name", protection_name.body
+FROM altertable_query('nested_db', 'SELECT id, protection_name FROM main.__nested_struct ORDER BY id')
+----
+1	Nmap Scripting Engine Scanner Over HTTP Request	somebody
+2	NULL	NULL
+
+statement ok
+CALL altertable_execute('nested_db', 'DROP TABLE __nested_struct')
+
+statement ok
+DETACH nested_db

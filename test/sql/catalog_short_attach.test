@@ -24,16 +24,12 @@ CREATE SECRET __short_catalog_attach (
     SSL '${ALTERTABLE_TEST_SSL}'
 )
 
-statement ok
+# A single-word path is catalog shorthand. ATTACH validates the selected catalog
+# immediately, so a catalog the mock does not expose must fail ATTACH itself.
+statement error
 ATTACH 'analytics' AS __short_catalog_db (TYPE ALTERTABLE, SECRET __short_catalog_attach)
-
-query I
-SELECT COUNT(*) FROM duckdb_databases() WHERE database_name = '__short_catalog_db'
 ----
-1
-
-statement ok
-DETACH __short_catalog_db
+analytics
 
 statement ok
 DROP SECRET __short_catalog_attach

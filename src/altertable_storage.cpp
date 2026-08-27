@@ -32,8 +32,10 @@ static unique_ptr<Catalog> AltertableAttach(optional_ptr<StorageExtensionInfo> s
 	if (secret_name.empty() && !display_path.empty()) {
 		display_path = AltertableConnectionConfig::Parse(connection_string).ToDSN(true);
 	}
-	return make_uniq<AltertableCatalog>(db, std::move(connection_string), std::move(display_path),
-	                                    attach_options.access_mode, std::move(schema_to_load));
+	auto catalog = make_uniq<AltertableCatalog>(db, std::move(connection_string), std::move(display_path),
+	                                            attach_options.access_mode, std::move(schema_to_load));
+	catalog->ValidateConnection();
+	return catalog;
 }
 
 static unique_ptr<TransactionManager>

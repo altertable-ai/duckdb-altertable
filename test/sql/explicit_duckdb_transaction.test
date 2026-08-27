@@ -128,5 +128,59 @@ COMMIT
 statement ok
 CALL altertable_execute('txdb', 'DROP TABLE __attached_tx_visibility')
 
+# Attached INSERT and altertable_execute DML must roll back with DuckDB ROLLBACK.
+# Prefer altertable_execute when a write cannot be pushed down as attached DML.
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE IF EXISTS __rollback_insert')
+
+statement ok
+CALL altertable_execute('txdb', 'CREATE TABLE __rollback_insert (n INTEGER)')
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO txdb.main.__rollback_insert VALUES (1)
+
+query I
+SELECT COUNT(*) FROM txdb.main.__rollback_insert
+----
+1
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM txdb.main.__rollback_insert
+----
+0
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+CALL altertable_execute('txdb', 'INSERT INTO main.__rollback_insert VALUES (2)')
+
+query I
+SELECT n FROM altertable_query('txdb', 'SELECT n FROM main.__rollback_insert ORDER BY n')
+----
+2
+
+statement ok
+ROLLBACK
+
+query I
+SELECT COUNT(*) FROM txdb.main.__rollback_insert
+----
+0
+
+query I
+SELECT COUNT(*) FROM altertable_query('txdb', 'SELECT n FROM main.__rollback_insert')
+----
+0
+
+statement ok
+CALL altertable_execute('txdb', 'DROP TABLE __rollback_insert')
+
 statement ok
 DETACH txdb

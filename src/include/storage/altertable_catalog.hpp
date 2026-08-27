@@ -76,6 +76,10 @@ public:
 
 	void ClearCache();
 
+	//! Open a pooled Flight connection and run `SELECT 1` so ATTACH fails on
+	//! bad credentials, unreachable hosts, or an invalid selected catalog.
+	void ValidateConnection();
+
 	//! Whether or not this catalog should search a specific type with the standard priority
 	CatalogLookupBehavior CatalogTypeLookupRule(CatalogType type) const override {
 		switch (type) {
