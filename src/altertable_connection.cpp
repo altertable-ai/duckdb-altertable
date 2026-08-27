@@ -85,7 +85,18 @@ AltertableConnection AltertableConnection::Open(const string &dsn) {
 	if (!config.user.empty() && !config.password.empty()) {
 		auto auth_result = flight_client->AuthenticateBasicToken({}, config.user, config.password);
 		if (!auth_result.ok()) {
-			throw IOException("Authentication failed: " + auth_result.status().ToString());
+			auto status = auth_result.status();
+			auto message = status.ToString();
+			auto lower = StringUtil::Lower(message);
+			// Flight connect is lazy; the first RPC is authentication. Transport
+			// failures must surface as connection errors, not credential errors.
+			bool unauthenticated =
+			    StringUtil::Contains(lower, "unauthenticated") || StringUtil::Contains(lower, "unauthorized") ||
+			    StringUtil::Contains(lower, "authentication") || StringUtil::Contains(lower, "authorization");
+			if (status.IsIOError() && !unauthenticated) {
+				throw IOException("Failed to connect to Flight server: " + message);
+			}
+			throw IOException("Authentication failed: " + message);
 		}
 
 		auto bearer_token = auth_result.ValueOrDie();

@@ -14,16 +14,12 @@ CREATE SECRET __dsn_space_roundtrip (
     SSL 'false'
 )
 
-statement ok
-ATTACH '' AS __dsn_space_roundtrip_db (TYPE ALTERTABLE, SECRET __dsn_space_roundtrip)
-
+# ATTACH validates connectivity immediately; the connection error must retain
+# the space in the host value after secret expansion.
 statement error
-SELECT * FROM __dsn_space_roundtrip_db.main.t
+ATTACH '' AS __dsn_space_roundtrip_db (TYPE ALTERTABLE, SECRET __dsn_space_roundtrip)
 ----
 bad host
-
-statement ok
-DETACH __dsn_space_roundtrip_db
 
 statement ok
 DROP SECRET __dsn_space_roundtrip

@@ -9,6 +9,7 @@ A DuckDB extension for connecting to Altertable. Query Altertable databases dire
 - **Raw query execution** - Run arbitrary SQL queries and DDL statements on remote servers
 - **Attached writes** - Use `CREATE TABLE`, `CREATE TABLE AS`, `INSERT ... VALUES`, and `INSERT ... SELECT` against attached Altertable tables
 - **Catalog integration** - Browse schemas and tables through DuckDB's catalog
+- **Nested Arrow types** - JSON, LIST, MAP, and unnamed STRUCT columns round-trip through attached scans and `altertable_query`
 
 ## Installation
 
@@ -56,7 +57,9 @@ DETACH db;
 
 Default connection behavior:
 
-- set `catalog` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting them lists all schemas the server returns (works with altertable-mock)
+- `ATTACH` opens a Flight SQL session immediately (`SELECT 1`) and fails if the host is unreachable, credentials are rejected, or a selected `catalog` is invalid
+- set `catalog` in the DSN or secret when the server exposes multiple Flight SQL catalogs and you need metadata filtering (`duckdb_tables()`, schema listing) or a session catalog; omitting `catalog` lists every schema the server returns (works with altertable-mock) and remote objects must be referenced with catalog-qualified names
+- JSON, LIST, MAP, and unnamed STRUCT columns round-trip through attached scans and `altertable_query`
 - set `compute_size` optionally to request a compute tier for the Flight SQL session; omit it to use the server default. Accepted values: `XS`, `S`, `M`, `L`, `XL`, `2XL`/`XXL`, `3XL`/`XXXL`, `4XL`/`XXXXL`
 - DSN keys are case-insensitive and values can be quoted with single or double quotes when needed
 - Prefer secrets over inline DSNs so passwords do not appear in SQL history or attached database paths
@@ -92,8 +95,9 @@ ATTACH 'catalog=your-altertable-catalog' AS analytics (TYPE altertable, SECRET m
 Execute a SELECT query on the attached database and return results. When the first
 argument names an attached Altertable database, the function uses that database's
 DuckDB transaction connection; its reads therefore observe uncommitted attached
-writes and follow `COMMIT`/`ROLLBACK`. It is not an independent autocommit
-connection.
+writes and follow `COMMIT`/`ROLLBACK`. When the first argument is a raw DSN, the
+function opens an independent Flight session that does not share DuckDB
+transactions.
 
 ```sql
 -- Run a query and get results
@@ -103,8 +107,9 @@ SELECT * FROM altertable_query('db', 'SELECT id, name FROM users WHERE active = 
 ### `altertable_execute(database, statement)`
 
 Execute DDL or DML statements (CREATE, INSERT, UPDATE, DELETE, etc.) on the remote
-database. When called for an attached database, the statement participates in the
-current DuckDB transaction and is rejected for `READ_ONLY` attachments.
+database. The first argument must be an attached Altertable database name, not a
+raw DSN. The statement participates in the current DuckDB transaction and is
+rejected for `READ_ONLY` attachments.
 
 ```sql
 -- Create a table
@@ -188,6 +193,11 @@ DROP TABLE analytics.main.top_customers;
 
 `READ_ONLY` attachments reject attached writes and `altertable_execute`, including
 schema/table creation, alteration, and drops.
+Attached DML and `altertable_execute` against an attached database name share the
+current DuckDB transaction: `BEGIN` / `COMMIT` / `ROLLBACK` apply on the remote
+Flight session. Use `altertable_execute('attached_name', ...)` for statements
+that cannot be pushed down; do not pass a raw DSN, which would open an
+independent autocommit session.
 Attached `UPDATE` and `DELETE` statements whose complete plan is remote are
 forwarded as one Flight SQL statement. This includes same-attachment
 `UPDATE ... FROM`, `DELETE ... USING`, and remote subqueries or CTEs. Mixed

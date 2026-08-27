@@ -38,6 +38,8 @@ tidy-check: ${EXTENSION_CONFIG_STEP}
 test-mock:
 	./scripts/test_with_mock.sh
 
+smoke: test-mock
+
 # Generate compile_commands.json for clangd
 clangd:
 	mkdir -p build/clangd
