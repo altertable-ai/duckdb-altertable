@@ -66,7 +66,8 @@ static AltertableCatalog &GetAltertableCatalogByName(ClientContext &context, con
 }
 
 static unique_ptr<FunctionData> AltertableQueryByNameBind(ClientContext &context, TableFunctionBindInput &input,
-                                                          vector<LogicalType> &return_types, vector<Identifier> &names) {
+                                                          vector<LogicalType> &return_types,
+                                                          vector<Identifier> &names) {
 	auto db_name = input.inputs[0].GetValue<string>();
 	auto query = input.inputs[1].GetValue<string>();
 	auto &altertable_catalog = GetAltertableCatalogByName(context, db_name);

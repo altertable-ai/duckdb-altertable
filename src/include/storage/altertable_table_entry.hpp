@@ -20,8 +20,7 @@ struct AltertableTableInfo {
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	AltertableTableInfo(const string &schema, const string &table) {
-		create_info =
-		    make_uniq<CreateTableInfo>(QualifiedName(Identifier(), Identifier(schema), Identifier(table)));
+		create_info = make_uniq<CreateTableInfo>(QualifiedName(Identifier(), Identifier(schema), Identifier(table)));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	AltertableTableInfo(const SchemaCatalogEntry &schema, const string &table) {
