@@ -6,7 +6,11 @@
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/common/vector/list_vector.hpp"
+#include "duckdb/common/vector/map_vector.hpp"
+#include "duckdb/common/vector/struct_vector.hpp"
 #include "arrow/array.h"
 #include "arrow/array/array_nested.h"
 #include "arrow/extension_type.h"
@@ -291,7 +295,7 @@ LogicalType AltertableArrowTypeToLogicalType(const arrow::DataType &arrow_type) 
 }
 
 static void ConvertListArray(Vector &vector, const arrow::Array &array, idx_t offset, idx_t count, bool large) {
-	auto list_data = ListVector::GetData(vector);
+	auto list_data = FlatVector::GetDataMutable<list_entry_t>(vector);
 	idx_t min_start = NumericLimits<idx_t>::Maximum();
 	idx_t max_end = 0;
 	bool any_valid = false;
@@ -348,7 +352,7 @@ static void ConvertListArray(Vector &vector, const arrow::Array &array, idx_t of
 }
 
 static void ConvertMapArray(Vector &vector, const arrow::MapArray &array, idx_t offset, idx_t count) {
-	auto list_data = ListVector::GetData(vector);
+	auto list_data = FlatVector::GetDataMutable<list_entry_t>(vector);
 	idx_t min_start = NumericLimits<idx_t>::Maximum();
 	idx_t max_end = 0;
 	bool any_valid = false;
@@ -401,7 +405,7 @@ static void ConvertStructArray(Vector &vector, const arrow::StructArray &array, 
 	idx_t field_count = MinValue<idx_t>(entries.size(), NumericCast<idx_t>(array.num_fields()));
 	for (idx_t c = 0; c < field_count; c++) {
 		auto field = array.field(static_cast<int>(c));
-		AltertableConvertArrowArray(*entries[c], *field, offset, count);
+		AltertableConvertArrowArray(entries[c], *field, offset, count);
 	}
 }
 
@@ -413,7 +417,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	    mapped_type.id() != LogicalTypeId::BLOB) {
 		Vector tmp(mapped_type, count);
 		AltertableConvertArrowArray(tmp, array, offset, count);
-		auto result = FlatVector::GetData<string_t>(vector);
+		auto result = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (FlatVector::IsNull(tmp, i)) {
 				FlatVector::SetNull(vector, i, true);
@@ -427,7 +431,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	switch (array.type_id()) {
 	case arrow::Type::BOOL: {
 		auto &bool_array = static_cast<const arrow::BooleanArray &>(array);
-		auto data = FlatVector::GetData<bool>(vector);
+		auto data = FlatVector::GetDataMutable<bool>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (bool_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = bool_array.Value(static_cast<int64_t>(offset + i));
@@ -439,7 +443,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::INT8: {
 		auto &int_array = static_cast<const arrow::Int8Array &>(array);
-		auto data = FlatVector::GetData<int8_t>(vector);
+		auto data = FlatVector::GetDataMutable<int8_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -451,7 +455,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::INT16: {
 		auto &int_array = static_cast<const arrow::Int16Array &>(array);
-		auto data = FlatVector::GetData<int16_t>(vector);
+		auto data = FlatVector::GetDataMutable<int16_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -463,7 +467,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::INT32: {
 		auto &int_array = static_cast<const arrow::Int32Array &>(array);
-		auto data = FlatVector::GetData<int32_t>(vector);
+		auto data = FlatVector::GetDataMutable<int32_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -475,7 +479,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::INT64: {
 		auto &int_array = static_cast<const arrow::Int64Array &>(array);
-		auto data = FlatVector::GetData<int64_t>(vector);
+		auto data = FlatVector::GetDataMutable<int64_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -487,7 +491,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::UINT8: {
 		auto &int_array = static_cast<const arrow::UInt8Array &>(array);
-		auto data = FlatVector::GetData<uint8_t>(vector);
+		auto data = FlatVector::GetDataMutable<uint8_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -499,7 +503,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::UINT16: {
 		auto &int_array = static_cast<const arrow::UInt16Array &>(array);
-		auto data = FlatVector::GetData<uint16_t>(vector);
+		auto data = FlatVector::GetDataMutable<uint16_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -511,7 +515,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::UINT32: {
 		auto &int_array = static_cast<const arrow::UInt32Array &>(array);
-		auto data = FlatVector::GetData<uint32_t>(vector);
+		auto data = FlatVector::GetDataMutable<uint32_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -523,7 +527,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::UINT64: {
 		auto &int_array = static_cast<const arrow::UInt64Array &>(array);
-		auto data = FlatVector::GetData<uint64_t>(vector);
+		auto data = FlatVector::GetDataMutable<uint64_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (int_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = int_array.Value(static_cast<int64_t>(offset + i));
@@ -535,7 +539,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::FLOAT: {
 		auto &float_array = static_cast<const arrow::FloatArray &>(array);
-		auto data = FlatVector::GetData<float>(vector);
+		auto data = FlatVector::GetDataMutable<float>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (float_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = float_array.Value(static_cast<int64_t>(offset + i));
@@ -547,7 +551,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::DOUBLE: {
 		auto &double_array = static_cast<const arrow::DoubleArray &>(array);
-		auto data = FlatVector::GetData<double>(vector);
+		auto data = FlatVector::GetDataMutable<double>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (double_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = double_array.Value(static_cast<int64_t>(offset + i));
@@ -560,7 +564,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	case arrow::Type::STRING: {
 		auto &str_array = static_cast<const arrow::StringArray &>(array);
 		if (vector.GetType() == LogicalType::UUID) {
-			auto data = FlatVector::GetData<hugeint_t>(vector);
+			auto data = FlatVector::GetDataMutable<hugeint_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (str_array.IsValid(static_cast<int64_t>(offset + i))) {
 					string uuid_str = str_array.GetString(static_cast<int64_t>(offset + i));
@@ -588,7 +592,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 				}
 			}
 		} else {
-			auto data = FlatVector::GetData<string_t>(vector);
+			auto data = FlatVector::GetDataMutable<string_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (str_array.IsValid(static_cast<int64_t>(offset + i))) {
 					string val = str_array.GetString(static_cast<int64_t>(offset + i));
@@ -602,7 +606,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::LARGE_STRING: {
 		auto &str_array = static_cast<const arrow::LargeStringArray &>(array);
-		auto data = FlatVector::GetData<string_t>(vector);
+		auto data = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (str_array.IsValid(static_cast<int64_t>(offset + i))) {
 				string val = str_array.GetString(static_cast<int64_t>(offset + i));
@@ -615,7 +619,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::BINARY: {
 		auto &bin_array = static_cast<const arrow::BinaryArray &>(array);
-		auto data = FlatVector::GetData<string_t>(vector);
+		auto data = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (bin_array.IsValid(static_cast<int64_t>(offset + i))) {
 				auto view = bin_array.GetView(static_cast<int64_t>(offset + i));
@@ -628,7 +632,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::LARGE_BINARY: {
 		auto &bin_array = static_cast<const arrow::LargeBinaryArray &>(array);
-		auto data = FlatVector::GetData<string_t>(vector);
+		auto data = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (bin_array.IsValid(static_cast<int64_t>(offset + i))) {
 				auto view = bin_array.GetView(static_cast<int64_t>(offset + i));
@@ -641,7 +645,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::DATE32: {
 		auto &date_array = static_cast<const arrow::Date32Array &>(array);
-		auto data = FlatVector::GetData<date_t>(vector);
+		auto data = FlatVector::GetDataMutable<date_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (date_array.IsValid(static_cast<int64_t>(offset + i))) {
 				data[i] = date_t(date_array.Value(static_cast<int64_t>(offset + i)));
@@ -653,7 +657,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::DATE64: {
 		auto &date_array = static_cast<const arrow::Date64Array &>(array);
-		auto data = FlatVector::GetData<date_t>(vector);
+		auto data = FlatVector::GetDataMutable<date_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (date_array.IsValid(static_cast<int64_t>(offset + i))) {
 				int64_t arrow_ms = date_array.Value(static_cast<int64_t>(offset + i));
@@ -667,7 +671,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	case arrow::Type::TIMESTAMP: {
 		auto &ts_array = static_cast<const arrow::TimestampArray &>(array);
 		auto ts_type = std::static_pointer_cast<arrow::TimestampType>(array.type());
-		auto data = FlatVector::GetData<timestamp_t>(vector);
+		auto data = FlatVector::GetDataMutable<timestamp_t>(vector);
 		auto unit = ts_type->unit();
 		for (idx_t i = 0; i < count; i++) {
 			if (ts_array.IsValid(static_cast<int64_t>(offset + i))) {
@@ -697,7 +701,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	case arrow::Type::TIME32: {
 		auto &time_array = static_cast<const arrow::Time32Array &>(array);
 		auto time_type = std::static_pointer_cast<arrow::Time32Type>(array.type());
-		auto data = FlatVector::GetData<dtime_t>(vector);
+		auto data = FlatVector::GetDataMutable<dtime_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (time_array.IsValid(static_cast<int64_t>(offset + i))) {
 				int32_t value = time_array.Value(static_cast<int64_t>(offset + i));
@@ -713,7 +717,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	case arrow::Type::TIME64: {
 		auto &time_array = static_cast<const arrow::Time64Array &>(array);
 		auto time_type = std::static_pointer_cast<arrow::Time64Type>(array.type());
-		auto data = FlatVector::GetData<dtime_t>(vector);
+		auto data = FlatVector::GetDataMutable<dtime_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (time_array.IsValid(static_cast<int64_t>(offset + i))) {
 				int64_t value = time_array.Value(static_cast<int64_t>(offset + i));
@@ -727,7 +731,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	}
 	case arrow::Type::FIXED_SIZE_BINARY: {
 		auto &fixed_array = static_cast<const arrow::FixedSizeBinaryArray &>(array);
-		auto data = FlatVector::GetData<string_t>(vector);
+		auto data = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (fixed_array.IsValid(static_cast<int64_t>(offset + i))) {
 				auto view = fixed_array.GetView(static_cast<int64_t>(offset + i));
@@ -742,7 +746,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 		auto &dec_array = static_cast<const arrow::Decimal128Array &>(array);
 		switch (vector.GetType().InternalType()) {
 		case PhysicalType::INT16: {
-			auto data = FlatVector::GetData<int16_t>(vector);
+			auto data = FlatVector::GetDataMutable<int16_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (dec_array.IsValid(static_cast<int64_t>(offset + i))) {
 					auto view = dec_array.GetView(static_cast<int64_t>(offset + i));
@@ -755,7 +759,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 			break;
 		}
 		case PhysicalType::INT32: {
-			auto data = FlatVector::GetData<int32_t>(vector);
+			auto data = FlatVector::GetDataMutable<int32_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (dec_array.IsValid(static_cast<int64_t>(offset + i))) {
 					auto view = dec_array.GetView(static_cast<int64_t>(offset + i));
@@ -768,7 +772,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 			break;
 		}
 		case PhysicalType::INT64: {
-			auto data = FlatVector::GetData<int64_t>(vector);
+			auto data = FlatVector::GetDataMutable<int64_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (dec_array.IsValid(static_cast<int64_t>(offset + i))) {
 					auto view = dec_array.GetView(static_cast<int64_t>(offset + i));
@@ -781,7 +785,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 			break;
 		}
 		default: {
-			auto data = FlatVector::GetData<hugeint_t>(vector);
+			auto data = FlatVector::GetDataMutable<hugeint_t>(vector);
 			for (idx_t i = 0; i < count; i++) {
 				if (dec_array.IsValid(static_cast<int64_t>(offset + i))) {
 					auto view = dec_array.GetView(static_cast<int64_t>(offset + i));
@@ -801,7 +805,7 @@ void AltertableConvertArrowArray(Vector &vector, const arrow::Array &array, idx_
 	case arrow::Type::DECIMAL256: {
 		auto &dec_array = static_cast<const arrow::Decimal256Array &>(array);
 		auto dec_type = std::static_pointer_cast<arrow::Decimal256Type>(array.type());
-		auto data = FlatVector::GetData<string_t>(vector);
+		auto data = FlatVector::GetDataMutable<string_t>(vector);
 		for (idx_t i = 0; i < count; i++) {
 			if (dec_array.IsValid(static_cast<int64_t>(offset + i))) {
 				auto view = dec_array.GetView(static_cast<int64_t>(offset + i));
@@ -926,7 +930,7 @@ static LogicalType UnquoteNestedTypeNames(const LogicalType &type) {
 	case LogicalTypeId::STRUCT: {
 		child_list_t<LogicalType> children;
 		for (idx_t i = 0; i < StructType::GetChildCount(type); i++) {
-			children.emplace_back(UnquoteIdentifier(StructType::GetChildName(type, i)),
+			children.emplace_back(Identifier(UnquoteIdentifier(StructType::GetChildName(type, i).GetIdentifierName())),
 			                      UnquoteNestedTypeNames(StructType::GetChildType(type, i)));
 		}
 		return LogicalType::STRUCT(std::move(children));
@@ -1040,7 +1044,9 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 			new_types.push_back(make_pair(name, ToAltertableType(type)));
 		}
 		auto result = LogicalType::STRUCT(std::move(new_types));
-		result.SetAlias(input.GetAlias());
+		if (!input.GetAlias().empty()) {
+			result = result.WithAlias(input.GetAlias());
+		}
 		return result;
 	}
 	case LogicalTypeId::TIMESTAMP_SEC:
@@ -1054,6 +1060,10 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
 	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+}
+
+string AltertableUtils::QuoteAltertableIdentifier(const Identifier &identifier) {
+	return QuoteAltertableIdentifier(identifier.GetIdentifierName());
 }
 
 bool TryGetAltertableComparisonOperator(ExpressionType type, string &result) {
@@ -1108,8 +1118,12 @@ bool TryGetAltertablePredicate(TableFilter &filter, const string &column_name, s
 	};
 
 	switch (filter.filter_type) {
-	case TableFilterType::CONSTANT_COMPARISON: {
-		auto &constant_filter = filter.Cast<ConstantFilter>();
+	case TableFilterType::EXPRESSION_FILTER: {
+		predicate = filter.Cast<ExpressionFilter>().ToString(column_name);
+		return true;
+	}
+	case TableFilterType::LEGACY_CONSTANT_COMPARISON: {
+		auto &constant_filter = filter.Cast<LegacyConstantFilter>();
 		string comparison_operator;
 		if (!TryGetAltertableComparisonOperator(constant_filter.comparison_type, comparison_operator)) {
 			return false;
@@ -1118,12 +1132,12 @@ bool TryGetAltertablePredicate(TableFilter &filter, const string &column_name, s
 		            constant_filter.constant.ToSQLString();
 		return true;
 	}
-	case TableFilterType::CONJUNCTION_AND:
-		return render_conjunction(filter.Cast<ConjunctionAndFilter>().child_filters, " AND ");
-	case TableFilterType::CONJUNCTION_OR:
-		return render_conjunction(filter.Cast<ConjunctionOrFilter>().child_filters, " OR ");
-	case TableFilterType::OPTIONAL_FILTER: {
-		auto &optional_filter = filter.Cast<OptionalFilter>();
+	case TableFilterType::LEGACY_CONJUNCTION_AND:
+		return render_conjunction(filter.Cast<LegacyConjunctionAndFilter>().child_filters, " AND ");
+	case TableFilterType::LEGACY_CONJUNCTION_OR:
+		return render_conjunction(filter.Cast<LegacyConjunctionOrFilter>().child_filters, " OR ");
+	case TableFilterType::LEGACY_OPTIONAL_FILTER: {
+		auto &optional_filter = filter.Cast<LegacyOptionalFilter>();
 		if (!optional_filter.child_filter) {
 			predicate.clear();
 			return true;
@@ -1133,10 +1147,10 @@ bool TryGetAltertablePredicate(TableFilter &filter, const string &column_name, s
 		}
 		return true;
 	}
-	case TableFilterType::IS_NULL:
+	case TableFilterType::LEGACY_IS_NULL:
 		predicate = AltertableUtils::QuoteAltertableIdentifier(column_name) + " IS NULL";
 		return true;
-	case TableFilterType::IS_NOT_NULL:
+	case TableFilterType::LEGACY_IS_NOT_NULL:
 		predicate = AltertableUtils::QuoteAltertableIdentifier(column_name) + " IS NOT NULL";
 		return true;
 	default:

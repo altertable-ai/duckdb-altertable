@@ -18,6 +18,13 @@
 #include "duckdb/parser/parsed_data/create_schema_info.hpp"
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/query_node/delete_query_node.hpp"
+#include "duckdb/parser/query_node/insert_query_node.hpp"
+#include "duckdb/parser/query_node/update_query_node.hpp"
+#include "duckdb/parser/sql_statement.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
 #include "duckdb/planner/operator/logical_delete.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
@@ -40,7 +47,7 @@ string AltertableCatalog::ExtractCatalogFromConnectionString(const string &conne
 }
 
 string AddConnectionOption(const KeyValueSecret &kv_secret, const string &name) {
-	Value input_val = kv_secret.TryGetValue(name);
+	Value input_val = kv_secret.TryGetValue(Identifier(name));
 	if (input_val.IsNull()) {
 		return string();
 	}
@@ -120,13 +127,13 @@ void AltertableCatalog::ValidateConnection() {
 
 optional_ptr<CatalogEntry> AltertableCatalog::CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) {
 	auto &altertable_transaction = AltertableTransaction::Get(transaction.GetContext(), *this);
-	auto entry = schemas.GetEntry(altertable_transaction, info.schema);
+	auto entry = schemas.GetEntry(altertable_transaction, info.SchemaName().GetIdentifierName());
 	if (entry) {
 		switch (info.on_conflict) {
 		case OnCreateConflict::REPLACE_ON_CONFLICT: {
 			DropInfo try_drop;
 			try_drop.type = CatalogType::SCHEMA_ENTRY;
-			try_drop.name = info.schema;
+			try_drop.SetName(info.SchemaName());
 			try_drop.if_not_found = OnEntryNotFound::RETURN_NULL;
 			try_drop.cascade = false;
 			schemas.DropEntry(altertable_transaction, try_drop);
@@ -136,7 +143,8 @@ optional_ptr<CatalogEntry> AltertableCatalog::CreateSchema(CatalogTransaction tr
 			return entry;
 		case OnCreateConflict::ERROR_ON_CONFLICT:
 		default:
-			throw BinderException("Failed to create schema \"%s\": schema already exists", info.schema);
+			throw BinderException("Failed to create schema \"%s\": schema already exists",
+			                      info.SchemaName().GetIdentifierName());
 		}
 	}
 	return schemas.CreateSchema(altertable_transaction, info);
@@ -193,6 +201,72 @@ void AltertableCatalog::ClearCache() {
 	schemas.ClearEntries();
 }
 
+static bool AltertableQueryNodeReturnsRows(const QueryNode &node) {
+	switch (node.type) {
+	case QueryNodeType::INSERT_QUERY_NODE:
+		return !node.Cast<InsertQueryNode>().returning_list.empty();
+	case QueryNodeType::UPDATE_QUERY_NODE:
+		return !node.Cast<UpdateQueryNode>().returning_list.empty();
+	case QueryNodeType::DELETE_QUERY_NODE:
+		return !node.Cast<DeleteQueryNode>().returning_list.empty();
+	default:
+		return true;
+	}
+}
+
+static void CheckAltertableReadOnlyDML(AccessMode access_mode, const QueryNode &node) {
+	if (access_mode != AccessMode::READ_ONLY) {
+		return;
+	}
+	switch (node.type) {
+	case QueryNodeType::INSERT_QUERY_NODE:
+		throw BinderException("Cannot insert into read-only Altertable database");
+	case QueryNodeType::UPDATE_QUERY_NODE:
+		throw BinderException("Cannot modify read-only Altertable database");
+	case QueryNodeType::DELETE_QUERY_NODE:
+		throw BinderException("Cannot modify read-only Altertable database");
+	default:
+		return;
+	}
+}
+
+static unique_ptr<TableRef> AltertableFunctionRef(const string &function_name, const Identifier &catalog_name,
+                                                  const string &sql) {
+	vector<unique_ptr<ParsedExpression>> args;
+	args.push_back(make_uniq<ConstantExpression>(Value(catalog_name.GetIdentifierName())));
+	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	auto func_ref = make_uniq<TableFunctionRef>();
+	func_ref->function = make_uniq<FunctionExpression>(Identifier(function_name), std::move(args));
+	return std::move(func_ref);
+}
+
+unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) {
+	CheckAltertableReadOnlyDML(access_mode, *node);
+	auto sql = node->ToString();
+	if (!AltertableQueryNodeReturnsRows(*node)) {
+		return AltertableFunctionRef("altertable_execute_by_name", GetName(), sql);
+	}
+	return RemoteExecute(context, sql);
+}
+
+unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, unique_ptr<SQLStatement> statement) {
+	if (access_mode == AccessMode::READ_ONLY) {
+		throw BinderException("Cannot execute write statement on read-only Altertable database");
+	}
+	return AltertableFunctionRef("altertable_execute_by_name", GetName(), statement->ToString());
+}
+
+bool AltertableCatalog::SupportsPushdown(const SQLStatement &statement) {
+	if (access_mode == AccessMode::READ_ONLY) {
+		return false;
+	}
+	return Catalog::SupportsPushdown(statement);
+}
+
+unique_ptr<TableRef> AltertableCatalog::RemoteExecute(ClientContext &context, const string &sql) {
+	return AltertableFunctionRef("altertable_query_by_name", GetName(), sql);
+}
+
 // Altertable handles all compute server-side - these operations are not supported locally
 // Use altertable_execute() to run DDL/DML statements on the remote server
 
@@ -208,7 +282,8 @@ PhysicalOperator &AltertableCatalog::PlanCreateTableAs(ClientContext &context, P
 }
 
 static string AltertableInsertTarget(const AltertableCatalog &catalog, const AltertableTableEntry &table) {
-	return AltertableUtils::QualifiedTableReference(catalog.GetRemoteCatalog(), table.schema.name, table.name);
+	return AltertableUtils::QualifiedTableReference(catalog.GetRemoteCatalog(), table.schema.name.GetIdentifierName(),
+	                                                table.name.GetIdentifierName());
 }
 
 static string AltertableInsertColumnList(const vector<string> &column_names) {

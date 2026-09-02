@@ -35,8 +35,8 @@ public:
 	string GetCatalogType() override {
 		return "altertable";
 	}
-	string GetDefaultSchema() const override {
-		return default_schema.empty() ? "public" : default_schema;
+	optional<Identifier> GetDefaultSchema() const override {
+		return Identifier(default_schema.empty() ? "public" : default_schema);
 	}
 
 	static string GetConnectionString(ClientContext &context, const string &attach_path, string secret_name);
@@ -61,6 +61,21 @@ public:
 	                             PhysicalOperator &plan) override;
 
 	DatabaseSize GetDatabaseSize(ClientContext &context) override;
+
+	bool Supports(RemoteCapability capability) const override {
+		switch (capability) {
+		case RemoteCapability::IS_REMOTE:
+		case RemoteCapability::EXECUTE_QUERY_NODE:
+		case RemoteCapability::EXECUTE_STATEMENT:
+			return true;
+		default:
+			return false;
+		}
+	}
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, unique_ptr<QueryNode> node) override;
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, unique_ptr<SQLStatement> statement) override;
+	unique_ptr<TableRef> RemoteExecute(ClientContext &context, const string &sql) override;
+	bool SupportsPushdown(const SQLStatement &statement) override;
 
 	const string &GetRemoteCatalog() const {
 		return remote_catalog;

@@ -15,7 +15,7 @@ AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry 
 		if (col.GetType().HasAlias()) {
 			col.TypeMutable() = AltertableUtils::RemoveAlias(col.GetType());
 		}
-		altertable_names.push_back(col.GetName());
+		altertable_names.push_back(col.GetName().GetIdentifierName());
 	}
 	approx_num_pages = 0;
 }
@@ -40,8 +40,8 @@ TableFunction AltertableTableEntry::GetScanFunction(ClientContext &context, uniq
 	auto result = make_uniq<AltertableBindData>(context);
 
 	result->catalog_name = altertable_catalog.GetRemoteCatalog();
-	result->schema_name = schema.name;
-	result->table_name = name;
+	result->schema_name = schema.name.GetIdentifierName();
+	result->table_name = name.GetIdentifierName();
 	result->dsn = transaction.GetDSN();
 	result->attach_path = altertable_catalog.attach_path;
 	result->SetCatalog(altertable_catalog);

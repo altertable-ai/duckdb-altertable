@@ -38,7 +38,7 @@ CREATE TABLE write_db.main.__attached_writes (id INTEGER, name VARCHAR)
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_writes VALUES (1, 'alpha'), (2, 'beta')
@@ -59,7 +59,7 @@ ALTER TABLE write_db.main.__attached_writes ADD COLUMN score DOUBLE
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_writes (name, id, score) VALUES ('delta', 4, 4.5)
@@ -105,7 +105,7 @@ INSERT INTO write_db.main.__attached_remote_insert_src VALUES (1, 'from-one'), (
 query II
 EXPLAIN INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 statement ok
 INSERT INTO write_db.main.__attached_remote_insert_dst SELECT id, name FROM write_db.main.__attached_remote_insert_src WHERE id >= 20
@@ -119,7 +119,7 @@ SELECT id, name FROM write_db.main.__attached_remote_insert_dst ORDER BY id
 query II
 EXPLAIN UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1
 ----
-physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE_UPDATE.*
+physical_plan	<REGEX>:.*ALTERTABLE_EXECUTE.*
 
 query I
 UPDATE write_db.main.__attached_writes SET name = 'updated' WHERE id = 1

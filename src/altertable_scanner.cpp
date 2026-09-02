@@ -8,6 +8,7 @@
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
 
 #include "arrow/type.h"
 #include "arrow/ipc/dictionary.h"
@@ -92,7 +93,7 @@ void AltertableBindData::SetTable(AltertableTableEntry &table) {
 }
 
 static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunctionBindInput &input,
-                                               vector<LogicalType> &return_types, vector<string> &names) {
+                                               vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto bind_data = make_uniq<AltertableBindData>(context);
 
 	bind_data->dsn = input.inputs[0].GetValue<string>();
@@ -119,11 +120,11 @@ static unique_ptr<FunctionData> AltertableBind(ClientContext &context, TableFunc
 	// Extract column names and types from Arrow schema
 	for (int i = 0; i < schema->num_fields(); i++) {
 		auto field = schema->field(i);
-		names.push_back(field->name());
+		names.emplace_back(field->name());
 		return_types.push_back(AltertableArrowTypeToLogicalType(*field->type()));
 	}
 
-	bind_data->names = names;
+	bind_data->names = IdentifiersToStrings(names);
 	bind_data->types = return_types;
 
 	return std::move(bind_data);
@@ -235,9 +236,9 @@ static unique_ptr<LocalTableFunctionState> GetLocalState(ClientContext &context,
 
 		if (input.filters) {
 			string filter_string;
-			for (auto &entry : input.filters->filters) {
-				idx_t projected_col_idx = entry.first;
-				auto &filter = *entry.second;
+			for (auto &entry : *input.filters) {
+				idx_t projected_col_idx = entry.GetIndex().GetIndexUnsafe();
+				auto &filter = entry.Filter();
 
 				// Map from projected column index to original table column index
 				// When filters are pushed down with projection, the filter column indices
@@ -423,7 +424,8 @@ bool IsAltertableScanTableFunction(const TableFunction &function) {
 	if (function.function == scan_pushdown.function && function.bind == scan_pushdown.bind) {
 		return true;
 	}
-	return function.name == "altertable_scan" || function.name == "altertable_scan_pushdown";
+	return function.name == "altertable_scan" || function.name == "altertable_scan_pushdown" ||
+	       function.name == "altertable_query" || function.name == "altertable_query_by_name";
 }
 
 } // namespace duckdb
