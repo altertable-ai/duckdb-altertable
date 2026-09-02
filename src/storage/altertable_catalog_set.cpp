@@ -2,6 +2,7 @@
 #include "storage/altertable_transaction.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "storage/altertable_schema_entry.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 
 namespace duckdb {
 
@@ -81,10 +82,10 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 	if (info.if_not_found == OnEntryNotFound::RETURN_NULL) {
 		drop_query += " IF EXISTS ";
 	}
-	if (!info.schema.empty()) {
-		drop_query += KeywordHelper::WriteQuoted(info.schema, '"') + ".";
+	if (!info.GetQualifiedName().Schema().empty()) {
+		drop_query += SQLQuotedIdentifier(info.GetQualifiedName().Schema().GetIdentifierName()) + ".";
 	}
-	drop_query += KeywordHelper::WriteQuoted(info.name, '"');
+	drop_query += SQLQuotedIdentifier(info.GetQualifiedName().Name().GetIdentifierName());
 	if (info.cascade) {
 		drop_query += " CASCADE";
 	}
@@ -92,7 +93,7 @@ void AltertableCatalogSet::DropEntry(AltertableTransaction &transaction, DropInf
 
 	// erase the entry from the catalog set
 	lock_guard<mutex> l(entry_lock);
-	entries.erase(info.name);
+	entries.erase(info.GetQualifiedName().Name().GetIdentifierName());
 }
 
 void AltertableCatalogSet::Scan(AltertableTransaction &transaction,
@@ -111,8 +112,9 @@ optional_ptr<CatalogEntry> AltertableCatalogSet::CreateEntry(AltertableTransacti
 	if (result->name.empty()) {
 		throw InternalException("AltertableCatalogSet::CreateEntry called with empty name");
 	}
-	entry_map.insert(make_pair(result->name, result->name));
-	entries.insert(make_pair(result->name, std::move(entry)));
+	auto entry_name = result->name.GetIdentifierName();
+	entry_map.insert(make_pair(entry_name, entry_name));
+	entries.insert(make_pair(entry_name, std::move(entry)));
 	return result;
 }
 

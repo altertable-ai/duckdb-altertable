@@ -26,7 +26,7 @@ AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, 
     : PhysicalOperator(physical_plan, PhysicalOperatorType::INSERT, std::move(types), estimated_cardinality),
       catalog(catalog_p), table(table_p) {
 	for (auto &column : table->GetColumns().Logical()) {
-		column_names.push_back(column.Name());
+		column_names.push_back(column.Name().GetIdentifierName());
 	}
 }
 
@@ -36,7 +36,7 @@ AltertablePhysicalInsert::AltertablePhysicalInsert(PhysicalPlan &physical_plan, 
     : PhysicalOperator(physical_plan, PhysicalOperatorType::INSERT, op.types, estimated_cardinality),
       catalog(catalog_p), schema(schema_p), create_info(std::move(info)) {
 	for (auto &column : create_info->Base().columns.Logical()) {
-		column_names.push_back(column.Name());
+		column_names.push_back(column.Name().GetIdentifierName());
 	}
 }
 
@@ -44,12 +44,13 @@ string AltertablePhysicalInsert::GetQualifiedTableName() const {
 	string schema_name;
 	string table_name;
 	if (table) {
-		schema_name = table->schema.name;
-		table_name = table->name;
+		schema_name = table->schema.name.GetIdentifierName();
+		table_name = table->name.GetIdentifierName();
 	} else {
 		auto &base = create_info->Base();
-		schema_name = base.schema.empty() ? schema->name : base.schema;
-		table_name = base.table;
+		auto &qn = base.GetQualifiedName();
+		schema_name = qn.Schema().empty() ? schema->name.GetIdentifierName() : qn.Schema().GetIdentifierName();
+		table_name = base.GetTableName().GetIdentifierName();
 	}
 	return AltertableUtils::QuoteAltertableIdentifier(schema_name) + "." +
 	       AltertableUtils::QuoteAltertableIdentifier(table_name);

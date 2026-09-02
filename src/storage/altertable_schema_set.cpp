@@ -98,7 +98,7 @@ void AltertableSchemaSet::LoadEntries(AltertableTransaction &transaction) {
 			}
 
 			CreateSchemaInfo info;
-			info.schema = schema_name;
+			info.SetQualifiedName(QualifiedName(Identifier(), Identifier(schema_name), Identifier()));
 			info.internal = AltertableSchemaEntry::SchemaIsInternal(schema_name);
 
 			auto schema = make_shared_ptr<AltertableSchemaEntry>(catalog, info, nullptr, nullptr);
@@ -113,7 +113,7 @@ optional_ptr<CatalogEntry> AltertableSchemaSet::CreateSchema(AltertableTransacti
 	if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 		query += "IF NOT EXISTS ";
 	}
-	query += AltertableUtils::QuoteAltertableIdentifier(info.schema);
+	query += AltertableUtils::QuoteAltertableIdentifier(info.SchemaName());
 	transaction.ExecuteUpdate(query);
 	auto schema = make_shared_ptr<AltertableSchemaEntry>(catalog, info, nullptr, nullptr);
 	return CreateEntry(transaction, std::move(schema));

@@ -37,7 +37,7 @@ AltertableTransaction &GetAltertableTransaction(CatalogTransaction transaction) 
 void AltertableSchemaEntry::TryDropEntry(ClientContext &context, CatalogType catalog_type, const string &name) {
 	DropInfo info;
 	info.type = catalog_type;
-	info.name = name;
+	info.SetName(Identifier(name));
 	info.cascade = false;
 	info.if_not_found = OnEntryNotFound::RETURN_NULL;
 	DropEntry(context, info);
@@ -47,7 +47,7 @@ optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateTable(CatalogTransaction
                                                               BoundCreateTableInfo &info) {
 	auto &altertable_transaction = GetAltertableTransaction(transaction);
 	auto &base_info = info.Base();
-	auto table_name = base_info.table;
+	auto table_name = base_info.GetTableName().GetIdentifierName();
 	if (base_info.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
 		// CREATE OR REPLACE - drop any existing entries first (if any)
 		TryDropEntry(transaction.GetContext(), CatalogType::TABLE_ENTRY, table_name);
@@ -70,7 +70,7 @@ string GetCreateViewSQL(AltertableSchemaEntry &schema, CreateViewInfo &info) {
 	string sql;
 	sql = "CREATE VIEW ";
 	sql += AltertableUtils::QuoteAltertableIdentifier(schema.name) + ".";
-	sql += AltertableUtils::QuoteAltertableIdentifier(info.view_name);
+	sql += AltertableUtils::QuoteAltertableIdentifier(info.GetViewName());
 	sql += " ";
 	if (!info.aliases.empty()) {
 		sql += "(";
@@ -94,18 +94,18 @@ optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateView(CatalogTransaction 
 	}
 	if (info.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT ||
 	    info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
-		auto current_entry = GetEntry(transaction, CatalogType::VIEW_ENTRY, info.view_name);
+		auto current_entry = GetEntry(transaction, CatalogType::VIEW_ENTRY, info.GetViewName());
 		if (current_entry) {
 			if (info.on_conflict == OnCreateConflict::IGNORE_ON_CONFLICT) {
 				return current_entry;
 			}
 			// CREATE OR REPLACE - drop any existing entries first (if any)
-			TryDropEntry(transaction.GetContext(), CatalogType::VIEW_ENTRY, info.view_name);
+			TryDropEntry(transaction.GetContext(), CatalogType::VIEW_ENTRY, info.GetViewName().GetIdentifierName());
 		}
 	}
 	auto &altertable_transaction = GetAltertableTransaction(transaction);
 	altertable_transaction.ExecuteUpdate(GetCreateViewSQL(*this, info));
-	return tables.ReloadEntry(altertable_transaction, info.view_name);
+	return tables.ReloadEntry(altertable_transaction, info.GetViewName().GetIdentifierName());
 }
 
 optional_ptr<CatalogEntry> AltertableSchemaEntry::CreateType(CatalogTransaction transaction, CreateTypeInfo &info) {
@@ -171,7 +171,7 @@ void AltertableSchemaEntry::Scan(CatalogType type, const std::function<void(Cata
 }
 
 void AltertableSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
-	info.schema = name;
+	info.SetSchema(name);
 	auto &altertable_transaction = AltertableTransaction::Get(context, catalog);
 	GetCatalogSet(info.type).DropEntry(altertable_transaction, info);
 }
