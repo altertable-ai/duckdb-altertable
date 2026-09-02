@@ -9,6 +9,7 @@
 #include "duckdb/parser/constraints/list.hpp"
 #include "storage/altertable_schema_entry.hpp"
 #include "duckdb/common/string_util.hpp"
+#include "duckdb/common/sql_identifier.hpp"
 
 namespace duckdb {
 
@@ -35,14 +36,14 @@ ORDER BY t.table_schema, t.table_name, c.ordinal_position;
 )";
 	string condition;
 	if (!catalog.empty()) {
-		condition += "AND t.table_catalog = " + KeywordHelper::WriteQuoted(catalog);
-		condition += " AND c.table_catalog = " + KeywordHelper::WriteQuoted(catalog);
+		condition += "AND t.table_catalog = " + SQLString(catalog);
+		condition += " AND c.table_catalog = " + SQLString(catalog);
 	}
 	if (!schema.empty()) {
-		condition += " AND t.table_schema = " + KeywordHelper::WriteQuoted(schema);
+		condition += " AND t.table_schema = " + SQLString(schema);
 	}
 	if (!table.empty()) {
-		condition += " AND t.table_name = " + KeywordHelper::WriteQuoted(table);
+		condition += " AND t.table_name = " + SQLString(table);
 	}
 	return StringUtil::Replace(base_query, "${CONDITION}", condition);
 }
@@ -188,7 +189,7 @@ string AltertableColumnsToSQL(const ColumnList &columns, const vector<unique_ptr
 					if (i > 0) {
 						base += ", ";
 					}
-					base += KeywordHelper::WriteQuoted(pk.GetColumnNames()[i].GetIdentifierName(), '"');
+					base += SQLQuotedIdentifier(pk.GetColumnNames()[i].GetIdentifierName());
 				}
 				extra_constraints.push_back(base + ")");
 			}
@@ -207,7 +208,7 @@ string AltertableColumnsToSQL(const ColumnList &columns, const vector<unique_ptr
 		if (column.Oid() > 0) {
 			ss << ", ";
 		}
-		ss << KeywordHelper::WriteQuoted(column.Name().GetIdentifierName(), '"') << " ";
+		ss << SQLQuotedIdentifier(column.Name().GetIdentifierName()) << " ";
 		ss << AltertableUtils::TypeToString(column.Type());
 		bool not_null = not_null_columns.find(column.Logical()) != not_null_columns.end();
 		bool is_single_key_pk = pk_columns.find(column.Logical()) != pk_columns.end();
@@ -253,10 +254,10 @@ string GetAltertableCreateTable(CreateTableInfo &info) {
 		ss << "IF NOT EXISTS ";
 	}
 	if (!info.GetQualifiedName().Schema().empty()) {
-		ss << KeywordHelper::WriteQuoted(info.GetQualifiedName().Schema().GetIdentifierName(), '"');
+		ss << SQLQuotedIdentifier(info.GetQualifiedName().Schema().GetIdentifierName());
 		ss << ".";
 	}
-	ss << KeywordHelper::WriteQuoted(info.GetTableName().GetIdentifierName(), '"');
+	ss << SQLQuotedIdentifier(info.GetTableName().GetIdentifierName());
 	ss << AltertableColumnsToSQL(info.columns, info.constraints);
 	ss << ";";
 	return ss.str();
@@ -272,8 +273,8 @@ optional_ptr<CatalogEntry> AltertableTableSet::CreateTable(AltertableTransaction
 
 string AltertableTableSet::GetAlterTablePrefix(const string &name, optional_ptr<CatalogEntry> entry) {
 	string sql = "ALTER TABLE ";
-	sql += KeywordHelper::WriteQuoted(schema.name.GetIdentifierName(), '"') + ".";
-	sql += KeywordHelper::WriteQuoted(entry ? entry->name.GetIdentifierName() : name, '"');
+	sql += SQLQuotedIdentifier(schema.name.GetIdentifierName()) + ".";
+	sql += SQLQuotedIdentifier(entry ? entry->name.GetIdentifierName() : name);
 	return sql;
 }
 
@@ -298,7 +299,7 @@ string AltertableTableSet::GetAlterTablePrefix(AltertableTransaction &transactio
 void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RenameTableInfo &info) {
 	string sql = GetAlterTablePrefix(transaction, info.GetQualifiedName().Name().GetIdentifierName());
 	sql += " RENAME TO ";
-	sql += KeywordHelper::WriteQuoted(info.new_table_name.GetIdentifierName(), '"');
+	sql += SQLQuotedIdentifier(info.new_table_name.GetIdentifierName());
 	transaction.ExecuteUpdate(sql);
 }
 
@@ -308,9 +309,9 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RenameCo
 	string sql = GetAlterTablePrefix(table_name, entry);
 	sql += " RENAME COLUMN  ";
 	string column_name = GetAlterTableColumnName(info.old_name.GetIdentifierName(), entry);
-	sql += KeywordHelper::WriteQuoted(column_name, '"');
+	sql += SQLQuotedIdentifier(column_name);
 	sql += " TO ";
-	sql += KeywordHelper::WriteQuoted(info.new_name.GetIdentifierName(), '"');
+	sql += SQLQuotedIdentifier(info.new_name.GetIdentifierName());
 
 	transaction.ExecuteUpdate(sql);
 }
@@ -321,7 +322,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, AddColum
 	if (info.if_column_not_exists) {
 		sql += "IF NOT EXISTS ";
 	}
-	sql += KeywordHelper::WriteQuoted(info.new_column.Name().GetIdentifierName(), '"');
+	sql += SQLQuotedIdentifier(info.new_column.Name().GetIdentifierName());
 	sql += " ";
 	sql += info.new_column.Type().ToString();
 	transaction.ExecuteUpdate(sql);
@@ -336,7 +337,7 @@ void AltertableTableSet::AlterTable(AltertableTransaction &transaction, RemoveCo
 		sql += "IF EXISTS ";
 	}
 	string column_name = GetAlterTableColumnName(info.removed_column.GetIdentifierName(), entry);
-	sql += KeywordHelper::WriteQuoted(column_name, '"');
+	sql += SQLQuotedIdentifier(column_name);
 	transaction.ExecuteUpdate(sql);
 }
 
