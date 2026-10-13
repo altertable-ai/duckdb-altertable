@@ -17,11 +17,11 @@ require-env ALTERTABLE_TEST_SSL
 statement ok
 CREATE SECRET __short_catalog_attach (
     TYPE altertable,
-    HOST '${ALTERTABLE_TEST_HOST}',
-    PORT '${ALTERTABLE_TEST_PORT}',
-    USER '${ALTERTABLE_TEST_USER}',
-    PASSWORD '${ALTERTABLE_TEST_PASSWORD}',
-    SSL '${ALTERTABLE_TEST_SSL}'
+    HOST '{ALTERTABLE_TEST_HOST}',
+    PORT '{ALTERTABLE_TEST_PORT}',
+    USER '{ALTERTABLE_TEST_USER}',
+    PASSWORD '{ALTERTABLE_TEST_PASSWORD}',
+    SSL '{ALTERTABLE_TEST_SSL}'
 )
 
 # A single-word path is catalog shorthand. ATTACH validates the selected catalog
