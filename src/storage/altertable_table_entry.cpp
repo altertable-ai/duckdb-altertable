@@ -9,7 +9,7 @@
 namespace duckdb {
 
 AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info), columns(std::move(info.columns)) {
 	for (idx_t c = 0; c < columns.LogicalColumnCount(); c++) {
 		auto &col = columns.GetColumnMutable(LogicalIndex(c));
 		if (col.GetType().HasAlias()) {
@@ -21,8 +21,13 @@ AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry 
 }
 
 AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, AltertableTableInfo &info)
-    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_names(std::move(info.altertable_names)) {
+    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_names(std::move(info.altertable_names)),
+      columns(std::move(info.create_info->columns)) {
 	approx_num_pages = info.approx_num_pages;
+}
+
+const ColumnList &AltertableTableEntry::GetColumns() const {
+	return columns;
 }
 
 unique_ptr<BaseStatistics> AltertableTableEntry::GetStatistics(ClientContext &context, column_t column_id) {

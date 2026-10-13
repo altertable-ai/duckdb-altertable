@@ -96,8 +96,7 @@ static void AltertableExecuteFunc(ClientContext &context, TableFunctionInput &da
 	transaction.ExecuteUpdate(bind_data.sql);
 	catalog.ClearCache();
 
-	output.SetCardinality(1);
-	output.SetValue(0, 0, Value::BOOLEAN(true));
+	output.data[0].Append(Value::BOOLEAN(true));
 }
 
 static AltertableCatalog &GetAltertableCatalogByName(ClientContext &context, const string &db_name) {
@@ -143,8 +142,7 @@ static void AltertableExecuteByNameFunc(ClientContext &context, TableFunctionInp
 	gstate.affected_rows = transaction.ExecuteUpdate(bind_data.sql);
 	altertable_catalog.ClearCache();
 
-	output.SetCardinality(1);
-	output.SetValue(0, 0, Value::BIGINT(gstate.affected_rows));
+	output.data[0].Append(Value::BIGINT(gstate.affected_rows));
 }
 
 AltertableExecuteFunction::AltertableExecuteFunction()

@@ -348,7 +348,7 @@ static void ConvertListArray(Vector &vector, const arrow::Array &array, idx_t of
 		values = static_cast<const arrow::ListArray &>(array).values();
 	}
 	auto sliced = values->Slice(static_cast<int64_t>(min_start), static_cast<int64_t>(child_count));
-	AltertableConvertArrowArray(ListVector::GetEntry(vector), *sliced, 0, child_count);
+	AltertableConvertArrowArray(ListVector::GetChildMutable(vector), *sliced, 0, child_count);
 }
 
 static void ConvertMapArray(Vector &vector, const arrow::MapArray &array, idx_t offset, idx_t count) {
@@ -1059,7 +1059,13 @@ LogicalType AltertableUtils::ToAltertableType(const LogicalType &input) {
 }
 
 string AltertableUtils::QuoteAltertableIdentifier(const string &text) {
-	return KeywordHelper::WriteOptionallyQuoted(text, '"', false);
+	// Unlike SQLIdentifier, this also quotes identifiers containing upper case characters, since Altertable folds
+	// unquoted identifiers to lower case. An underscore followed by a digit could be read as a decimal after a dot.
+	bool ambiguous_after_dot = text.size() > 1 && text[0] == '_' && StringUtil::CharacterIsDigit(text[1]);
+	if (text.empty() || ambiguous_after_dot || KeywordHelper::RequiresQuotes(text, false)) {
+		return SQLQuotedIdentifier::ToString(text);
+	}
+	return text;
 }
 
 string AltertableUtils::QuoteAltertableIdentifier(const Identifier &identifier) {

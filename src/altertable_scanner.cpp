@@ -348,7 +348,7 @@ void AltertableLocalState::ScanChunk(ClientContext &context, const AltertableBin
 		throw IOException("Altertable returned %llu columns, but DuckDB expected %llu", batch->num_columns(),
 		                  expected_columns);
 	}
-	scan_chunk.SetCardinality(row_count);
+	scan_chunk.SetChildCardinality(row_count);
 
 	for (idx_t col_idx = 0; col_idx < scan_chunk.ColumnCount(); col_idx++) {
 		auto &vector = scan_chunk.data[col_idx];
@@ -374,13 +374,13 @@ static unique_ptr<NodeStatistics> AltertableScanCardinality(ClientContext &conte
 	return make_uniq<NodeStatistics>(bind_data.pages_approx * 100); // Rough estimate
 }
 
-static BindInfo AltertableScanGetBindInfo(const optional_ptr<FunctionData> bind_data_p) {
+static optional_ptr<TableCatalogEntry> AltertableScanGetTableEntry(optional_ptr<const FunctionData> bind_data_p) {
 	auto &bind_data = bind_data_p->Cast<AltertableBindData>();
 	auto table = bind_data.GetTable();
 	if (!table) {
-		return BindInfo(ScanType::EXTERNAL);
+		return nullptr;
 	}
-	return BindInfo(*table);
+	return table.get();
 }
 
 static InsertionOrderPreservingMap<string> AltertableScanToString(TableFunctionToStringInput &input) {
@@ -397,7 +397,7 @@ AltertableScanFunction::AltertableScanFunction()
     : TableFunction("altertable_scan", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
-	get_bind_info = AltertableScanGetBindInfo;
+	get_table_entry = AltertableScanGetTableEntry;
 	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;
@@ -408,7 +408,7 @@ AltertableScanFunctionFilterPushdown::AltertableScanFunctionFilterPushdown()
     : TableFunction("altertable_scan_pushdown", {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::VARCHAR},
                     AltertableScan, AltertableBind, AltertableInitGlobalState, AltertableInitLocalState) {
 	cardinality = AltertableScanCardinality;
-	get_bind_info = AltertableScanGetBindInfo;
+	get_table_entry = AltertableScanGetTableEntry;
 	to_string = AltertableScanToString;
 	projection_pushdown = true;
 	filter_pushdown = true;

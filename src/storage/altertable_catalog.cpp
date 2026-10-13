@@ -233,8 +233,8 @@ static void CheckAltertableReadOnlyDML(AccessMode access_mode, const QueryNode &
 static unique_ptr<TableRef> AltertableFunctionRef(const string &function_name, const Identifier &catalog_name,
                                                   const string &sql) {
 	vector<unique_ptr<ParsedExpression>> args;
-	args.push_back(make_uniq<ConstantExpression>(Value(catalog_name.GetIdentifierName())));
-	args.push_back(make_uniq<ConstantExpression>(Value(sql)));
+	args.push_back(ConstantExpression::String(catalog_name.GetIdentifierName()));
+	args.push_back(ConstantExpression::String(sql));
 	auto func_ref = make_uniq<TableFunctionRef>();
 	func_ref->function = make_uniq<FunctionExpression>(Identifier(function_name), std::move(args));
 	return std::move(func_ref);

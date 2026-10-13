@@ -43,6 +43,8 @@ public:
 	AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, AltertableTableInfo &info);
 
 public:
+	const ColumnList &GetColumns() const override;
+
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
@@ -58,6 +60,10 @@ public:
 	vector<string> altertable_names;
 	//! The approximate number of pages a table consumes in Altertable
 	idx_t approx_num_pages;
+
+private:
+	//! The columns of the table
+	ColumnList columns;
 };
 
 } // namespace duckdb

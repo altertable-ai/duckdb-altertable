@@ -11,7 +11,7 @@ bool AltertableLimitPushdownOptimizer::IsAltertableScan(LogicalOperator &op) {
 		return false;
 	}
 	auto &get = op.Cast<LogicalGet>();
-	return IsAltertableScanTableFunction(get.function);
+	return IsAltertableScanTableFunction(*get.function.GetDefinition());
 }
 
 void AltertableLimitPushdownOptimizer::PushLimitIntoScan(LogicalOperator &scan_op, idx_t limit_value) {

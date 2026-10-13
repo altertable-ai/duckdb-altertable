@@ -2,7 +2,9 @@ cmake_minimum_required(VERSION 3.20)
 set(TARGET_NAME altertable)
 project(${TARGET_NAME})
 
-set(CMAKE_CXX_STANDARD "17" CACHE STRING "C++ standard to enforce")
+set(CMAKE_CXX_STANDARD
+    "17"
+    CACHE STRING "C++ standard to enforce")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include_directories(src/include)
@@ -25,17 +27,14 @@ if(NOT MSVC)
       "-Wno-pedantic -Wno-sign-compare -Wno-unused-variable")
 endif()
 
-set(CMAKE_CXX_FLAGS_DEBUG
-    "${CMAKE_CXX_FLAGS_DEBUG} ${ALTERTABLE_EXTRA_CFLAGS}")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} ${ALTERTABLE_EXTRA_CFLAGS}")
 set(CMAKE_CXX_FLAGS_RELEASE
     "${CMAKE_CXX_FLAGS_RELEASE} ${ALTERTABLE_EXTRA_CFLAGS}")
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} ${ALTERTABLE_EXTRA_CFLAGS}")
 
-set(CMAKE_C_FLAGS_DEBUG
-    "${CMAKE_C_FLAGS_DEBUG} ${ALTERTABLE_EXTRA_CFLAGS}")
-set(CMAKE_C_FLAGS_RELEASE
-    "${CMAKE_C_FLAGS_RELEASE} ${ALTERTABLE_EXTRA_CFLAGS}")
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} ${ALTERTABLE_EXTRA_CFLAGS}")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} ${ALTERTABLE_EXTRA_CFLAGS}")
 set(CMAKE_C_FLAGS_RELWITHDEBINFO
     "${CMAKE_C_FLAGS_RELWITHDEBINFO} ${ALTERTABLE_EXTRA_CFLAGS}")
 
@@ -56,25 +55,24 @@ else()
   set(ARROW_FLIGHT_SQL_LIB ArrowFlightSql::arrow_flight_sql_static)
 endif()
 
-# Static Arrow Flight does not always propagate gRPC through CMake; link it explicitly for static triplets.
+# Static Arrow Flight does not always propagate gRPC through CMake; link it
+# explicitly for static triplets.
 set(ALTERTABLE_GRPC_LIBS "")
 if(NOT EMSCRIPTEN AND NOT TARGET ArrowFlight::arrow_flight_shared)
   find_package(gRPC CONFIG REQUIRED)
   list(APPEND ALTERTABLE_GRPC_LIBS gRPC::grpc++ gRPC::grpc)
 endif()
 
-get_target_property(ARROW_INCLUDE_DIRS ${ARROW_LIB} INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(ARROW_FLIGHT_INCLUDE_DIRS ${ARROW_FLIGHT_LIB} INTERFACE_INCLUDE_DIRECTORIES)
-get_target_property(ARROW_FLIGHT_SQL_INCLUDE_DIRS ${ARROW_FLIGHT_SQL_LIB} INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ARROW_INCLUDE_DIRS ${ARROW_LIB}
+                    INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ARROW_FLIGHT_INCLUDE_DIRS ${ARROW_FLIGHT_LIB}
+                    INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(ARROW_FLIGHT_SQL_INCLUDE_DIRS ${ARROW_FLIGHT_SQL_LIB}
+                    INTERFACE_INCLUDE_DIRECTORIES)
 
 include_directories(
-    include 
-    src/include 
-    ${OPENSSL_INCLUDE_DIR}
-    ${ARROW_INCLUDE_DIRS}
-    ${ARROW_FLIGHT_INCLUDE_DIRS}
-    ${ARROW_FLIGHT_SQL_INCLUDE_DIRS}
-)
+  include src/include ${OPENSSL_INCLUDE_DIR} ${ARROW_INCLUDE_DIRS}
+  ${ARROW_FLIGHT_INCLUDE_DIRS} ${ARROW_FLIGHT_SQL_INCLUDE_DIRS})
 
 add_subdirectory(src)
 
@@ -84,8 +82,8 @@ add_subdirectory(src)
 # dllimport while static arrow.lib provides plain symbols -> LNK2019 __imp_*.
 foreach(_altertable_objlib altertable_ext_storage altertable_ext_library)
   target_link_libraries(
-    ${_altertable_objlib}
-    PUBLIC ${ARROW_LIB} ${ARROW_FLIGHT_LIB} ${ARROW_FLIGHT_SQL_LIB})
+    ${_altertable_objlib} PUBLIC ${ARROW_LIB} ${ARROW_FLIGHT_LIB}
+                                 ${ARROW_FLIGHT_SQL_LIB})
 endforeach()
 if(ALTERTABLE_GRPC_LIBS)
   foreach(_altertable_objlib altertable_ext_storage altertable_ext_library)
@@ -99,52 +97,38 @@ build_loadable_extension(${TARGET_NAME} ${PARAMETERS} ${ALL_OBJECT_FILES})
 
 target_include_directories(
   ${TARGET_NAME}_extension
-  PRIVATE include src/include ${OPENSSL_INCLUDE_DIR}
-  ${ARROW_INCLUDE_DIRS}
-  ${ARROW_FLIGHT_INCLUDE_DIRS}
-  ${ARROW_FLIGHT_SQL_INCLUDE_DIRS}
-)
+  PRIVATE include src/include ${OPENSSL_INCLUDE_DIR} ${ARROW_INCLUDE_DIRS}
+          ${ARROW_FLIGHT_INCLUDE_DIRS} ${ARROW_FLIGHT_SQL_INCLUDE_DIRS})
 
 target_include_directories(
   ${TARGET_NAME}_loadable_extension
-  PRIVATE include src/include ${OPENSSL_INCLUDE_DIR}
-  ${ARROW_INCLUDE_DIRS}
-  ${ARROW_FLIGHT_INCLUDE_DIRS}
-  ${ARROW_FLIGHT_SQL_INCLUDE_DIRS}
-)
+  PRIVATE include src/include ${OPENSSL_INCLUDE_DIR} ${ARROW_INCLUDE_DIRS}
+          ${ARROW_FLIGHT_INCLUDE_DIRS} ${ARROW_FLIGHT_SQL_INCLUDE_DIRS})
 
-target_link_libraries(${TARGET_NAME}_extension
-    ${OPENSSL_LIBRARIES}
-    ${ARROW_LIB}
-    ${ARROW_FLIGHT_LIB}
-    ${ARROW_FLIGHT_SQL_LIB}
-    ${ALTERTABLE_GRPC_LIBS}
-)
+target_link_libraries(
+  ${TARGET_NAME}_extension ${OPENSSL_LIBRARIES} ${ARROW_LIB}
+  ${ARROW_FLIGHT_LIB} ${ARROW_FLIGHT_SQL_LIB} ${ALTERTABLE_GRPC_LIBS})
 
-target_link_libraries(${TARGET_NAME}_loadable_extension
-    ${OPENSSL_LIBRARIES}
-    ${ARROW_LIB}
-    ${ARROW_FLIGHT_LIB}
-    ${ARROW_FLIGHT_SQL_LIB}
-    ${ALTERTABLE_GRPC_LIBS}
-)
+target_link_libraries(
+  ${TARGET_NAME}_loadable_extension ${OPENSSL_LIBRARIES} ${ARROW_LIB}
+  ${ARROW_FLIGHT_LIB} ${ARROW_FLIGHT_SQL_LIB} ${ALTERTABLE_GRPC_LIBS})
 
 # Override the C++ standard for this extension to C++17
-set_target_properties(${TARGET_NAME}_loadable_extension PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    C_STANDARD 99
-)
+set_target_properties(
+  ${TARGET_NAME}_loadable_extension
+  PROPERTIES CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED ON
+             C_STANDARD 99)
 
-set_target_properties(${TARGET_NAME}_extension PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    C_STANDARD 99
-)
+set_target_properties(
+  ${TARGET_NAME}_extension
+  PROPERTIES CXX_STANDARD 17
+             CXX_STANDARD_REQUIRED ON
+             C_STANDARD 99)
 
 if(WIN32)
-  target_link_libraries(${TARGET_NAME}_extension wsock32 ws2_32
-                        wldap32 secur32 crypt32)
+  target_link_libraries(${TARGET_NAME}_extension wsock32 ws2_32 wldap32 secur32
+                        crypt32)
   target_link_libraries(${TARGET_NAME}_loadable_extension wsock32 ws2_32
                         wldap32 secur32 crypt32)
 endif()
