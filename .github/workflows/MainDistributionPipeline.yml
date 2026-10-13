@@ -49,7 +49,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3 # 2026.06.24, matches extension-ci-tools
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, keep in sync with duckdb-stable-build's vcpkg_commit
 
       - name: Build
         run: make
@@ -80,6 +80,9 @@ jobs:
     with:
       duckdb_version: v2.0-cyanoptera
       ci_tools_version: main
+      # vcpkg 2026.06.24 (the extension-ci-tools default) ships thrift 0.23, whose build passes --file-prefix-map to
+      # bison; that needs bison >= 3.7 but the manylinux (el8) images only have bison 3.0.4.
+      vcpkg_commit: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, thrift 0.22
       extension_name: altertable
       # Arrow Flight pulls in Thrift; vcpkg's thrift port needs bison > 2.5 (brew on macOS, yum in Linux images).
       extra_toolchains: "parser_tools"
@@ -122,7 +125,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3 # 2026.06.24, matches extension-ci-tools
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, keep in sync with duckdb-stable-build's vcpkg_commit
 
       - name: clang-tidy
         run: make tidy-check
