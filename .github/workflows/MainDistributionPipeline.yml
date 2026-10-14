@@ -49,7 +49,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, keep in sync with duckdb-stable-build's vcpkg_commit
 
       - name: Build
         run: make
@@ -76,10 +76,13 @@ jobs:
 
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5.6
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      duckdb_version: v1.5.6
-      ci_tools_version: v1.5.6
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: main
+      # vcpkg 2026.06.24 (the extension-ci-tools default) ships thrift 0.23, whose build passes --file-prefix-map to
+      # bison; that needs bison >= 3.7 but the manylinux (el8) images only have bison 3.0.4.
+      vcpkg_commit: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, thrift 0.22
       extension_name: altertable
       # Arrow Flight pulls in Thrift; vcpkg's thrift port needs bison > 2.5 (brew on macOS, yum in Linux images).
       extra_toolchains: "parser_tools"
@@ -89,10 +92,10 @@ jobs:
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v1.5.6
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
     with:
-      duckdb_version: v1.5.6
-      ci_tools_version: v1.5.6
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: main
       extension_name: altertable
       # clang-tidy needs vcpkg (Arrow); the reusable workflow does not set up vcpkg — see extension-tidy-check.
       format_checks: "format"
@@ -122,7 +125,7 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
         with:
-          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35
+          vcpkgGitCommitId: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, keep in sync with duckdb-stable-build's vcpkg_commit
 
       - name: clang-tidy
         run: make tidy-check

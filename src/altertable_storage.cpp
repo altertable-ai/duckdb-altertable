@@ -1,6 +1,7 @@
 #include "altertable_storage.hpp"
 #include "storage/altertable_catalog.hpp"
 #include "duckdb/parser/parsed_data/attach_info.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/main/settings.hpp"
 #include "storage/altertable_transaction_manager.hpp"
 

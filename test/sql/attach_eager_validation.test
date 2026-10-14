@@ -16,18 +16,18 @@ require-env ALTERTABLE_TEST_SSL
 
 # Wrong password is rejected at ATTACH, not on first query
 statement error
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=__wrong_password__ ssl=${ALTERTABLE_TEST_SSL}' AS bad_pw_db (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password=__wrong_password__ ssl={ALTERTABLE_TEST_SSL}' AS bad_pw_db (TYPE ALTERTABLE)
 ----
 Authentication failed
 
 # Invalid selected catalog is rejected at ATTACH
 statement error
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL} catalog=does_not_exist' AS bad_cat_db (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL} catalog=does_not_exist' AS bad_cat_db (TYPE ALTERTABLE)
 ----
 
 # Valid inline, secret, read-only, and no-catalog attachments still succeed
 statement ok
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS eager_ok (TYPE ALTERTABLE)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}' AS eager_ok (TYPE ALTERTABLE)
 
 statement ok
 DETACH eager_ok
@@ -35,11 +35,11 @@ DETACH eager_ok
 statement ok
 CREATE SECRET eager_attach_secret (
     TYPE altertable,
-    HOST '${ALTERTABLE_TEST_HOST}',
-    PORT '${ALTERTABLE_TEST_PORT}',
-    USER '${ALTERTABLE_TEST_USER}',
-    PASSWORD '${ALTERTABLE_TEST_PASSWORD}',
-    SSL '${ALTERTABLE_TEST_SSL}'
+    HOST '{ALTERTABLE_TEST_HOST}',
+    PORT '{ALTERTABLE_TEST_PORT}',
+    USER '{ALTERTABLE_TEST_USER}',
+    PASSWORD '{ALTERTABLE_TEST_PASSWORD}',
+    SSL '{ALTERTABLE_TEST_SSL}'
 )
 
 statement ok
@@ -49,7 +49,7 @@ statement ok
 DETACH eager_secret_ok
 
 statement ok
-ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS eager_ro_ok (TYPE ALTERTABLE, READ_ONLY true)
+ATTACH 'host={ALTERTABLE_TEST_HOST} port={ALTERTABLE_TEST_PORT} user={ALTERTABLE_TEST_USER} password={ALTERTABLE_TEST_PASSWORD} ssl={ALTERTABLE_TEST_SSL}' AS eager_ro_ok (TYPE ALTERTABLE, READ_ONLY true)
 
 statement ok
 DETACH eager_ro_ok

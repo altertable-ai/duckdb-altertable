@@ -9,20 +9,25 @@
 namespace duckdb {
 
 AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info), columns(std::move(info.columns)) {
 	for (idx_t c = 0; c < columns.LogicalColumnCount(); c++) {
 		auto &col = columns.GetColumnMutable(LogicalIndex(c));
 		if (col.GetType().HasAlias()) {
 			col.TypeMutable() = AltertableUtils::RemoveAlias(col.GetType());
 		}
-		altertable_names.push_back(col.GetName());
+		altertable_names.push_back(col.GetName().GetIdentifierName());
 	}
 	approx_num_pages = 0;
 }
 
 AltertableTableEntry::AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, AltertableTableInfo &info)
-    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_names(std::move(info.altertable_names)) {
+    : TableCatalogEntry(catalog, schema, *info.create_info), altertable_names(std::move(info.altertable_names)),
+      columns(std::move(info.create_info->columns)) {
 	approx_num_pages = info.approx_num_pages;
+}
+
+const ColumnList &AltertableTableEntry::GetColumns() const {
+	return columns;
 }
 
 unique_ptr<BaseStatistics> AltertableTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
@@ -40,8 +45,8 @@ TableFunction AltertableTableEntry::GetScanFunction(ClientContext &context, uniq
 	auto result = make_uniq<AltertableBindData>(context);
 
 	result->catalog_name = altertable_catalog.GetRemoteCatalog();
-	result->schema_name = schema.name;
-	result->table_name = name;
+	result->schema_name = schema.name.GetIdentifierName();
+	result->table_name = name.GetIdentifierName();
 	result->dsn = transaction.GetDSN();
 	result->attach_path = altertable_catalog.attach_path;
 	result->SetCatalog(altertable_catalog);

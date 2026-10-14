@@ -51,6 +51,7 @@ public:
 	static string TypeToString(const LogicalType &input);
 	static LogicalType RemoveAlias(const LogicalType &type);
 	static string QuoteAltertableIdentifier(const string &text);
+	static string QuoteAltertableIdentifier(const Identifier &identifier);
 	static string QuoteDSNValue(const string &value);
 	static string QueryFingerprint(const string &query);
 	static string QualifiedTableReference(const string &catalog, const string &schema, const string &table);

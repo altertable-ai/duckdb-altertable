@@ -20,16 +20,16 @@ struct AltertableTableInfo {
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	AltertableTableInfo(const string &schema, const string &table) {
-		create_info = make_uniq<CreateTableInfo>(string(), schema, table);
+		create_info = make_uniq<CreateTableInfo>(QualifiedName(Identifier(), Identifier(schema), Identifier(table)));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 	AltertableTableInfo(const SchemaCatalogEntry &schema, const string &table) {
-		create_info = make_uniq<CreateTableInfo>((SchemaCatalogEntry &)schema, table);
+		create_info = make_uniq<CreateTableInfo>(const_cast<SchemaCatalogEntry &>(schema), Identifier(table));
 		create_info->columns.SetAllowDuplicates(true);
 	}
 
 	const string &GetTableName() const {
-		return create_info->table;
+		return create_info->GetTableName().GetIdentifierName();
 	}
 
 	unique_ptr<CreateTableInfo> create_info;
@@ -43,6 +43,8 @@ public:
 	AltertableTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, AltertableTableInfo &info);
 
 public:
+	const ColumnList &GetColumns() const override;
+
 	unique_ptr<BaseStatistics> GetStatistics(ClientContext &context, column_t column_id) override;
 
 	TableFunction GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) override;
@@ -58,6 +60,10 @@ public:
 	vector<string> altertable_names;
 	//! The approximate number of pages a table consumes in Altertable
 	idx_t approx_num_pages;
+
+private:
+	//! The columns of the table
+	ColumnList columns;
 };
 
 } // namespace duckdb

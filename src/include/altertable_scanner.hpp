@@ -82,9 +82,19 @@ public:
 	AltertableQueryFunction();
 };
 
+class AltertableQueryByNameFunction : public TableFunction {
+public:
+	AltertableQueryByNameFunction();
+};
+
 class AltertableExecuteFunction : public TableFunction {
 public:
 	AltertableExecuteFunction();
+};
+
+class AltertableExecuteByNameFunction : public TableFunction {
+public:
+	AltertableExecuteByNameFunction();
 };
 
 } // namespace duckdb
