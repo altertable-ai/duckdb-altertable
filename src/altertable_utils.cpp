@@ -1,7 +1,6 @@
 #include "altertable_utils.hpp"
 #include "storage/altertable_schema_entry.hpp"
 #include "storage/altertable_transaction.hpp"
-#include "duckdb/main/config.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/null_filter.hpp"
@@ -925,29 +924,41 @@ static string UnquoteIdentifier(const string &input) {
 	return input;
 }
 
-static LogicalType UnquoteNestedTypeNames(const LogicalType &type) {
-	switch (type.id()) {
-	case LogicalTypeId::STRUCT: {
-		child_list_t<LogicalType> children;
-		for (idx_t i = 0; i < StructType::GetChildCount(type); i++) {
-			children.emplace_back(Identifier(UnquoteIdentifier(StructType::GetChildName(type, i).GetIdentifierName())),
-			                      UnquoteNestedTypeNames(StructType::GetChildType(type, i)));
-		}
-		return LogicalType::STRUCT(std::move(children));
-	}
-	case LogicalTypeId::LIST:
-		return LogicalType::LIST(UnquoteNestedTypeNames(ListType::GetChildType(type)));
-	case LogicalTypeId::MAP:
-		return LogicalType::MAP(UnquoteNestedTypeNames(MapType::KeyType(type)),
-		                        UnquoteNestedTypeNames(MapType::ValueType(type)));
-	default:
-		return type;
-	}
+static LogicalType ParseChildType(string type_name) {
+	StringUtil::Trim(type_name);
+	AltertableTypeData child_info;
+	child_info.type_name = std::move(type_name);
+	return AltertableUtils::TypeToLogicalType(child_info);
 }
 
 LogicalType AltertableUtils::TypeToLogicalType(const AltertableTypeData &type_info) {
 	auto &type_name = type_info.type_name;
 	auto type_upper = StringUtil::Upper(type_name);
+
+	if (StringUtil::EndsWith(type_upper, "[]")) {
+		return LogicalType::LIST(ParseChildType(type_name.substr(0, type_name.size() - 2)));
+	}
+	if (StringUtil::StartsWith(type_upper, "STRUCT(") && StringUtil::EndsWith(type_upper, ")")) {
+		child_list_t<LogicalType> children;
+		for (auto &member : StringUtil::SplitWithParentheses(type_name.substr(7, type_name.size() - 8))) {
+			StringUtil::Trim(member);
+			auto parts = StringUtil::SplitWithParentheses(member, ' ');
+			if (parts.size() < 2) {
+				return LogicalType::VARCHAR;
+			}
+			children.emplace_back(
+			    Identifier(UnquoteIdentifier(parts[0])),
+			    ParseChildType(StringUtil::Join(vector<string>(parts.begin() + 1, parts.end()), " ")));
+		}
+		return LogicalType::STRUCT(std::move(children));
+	}
+	if (StringUtil::StartsWith(type_upper, "MAP(") && StringUtil::EndsWith(type_upper, ")")) {
+		auto args = StringUtil::SplitWithParentheses(type_name.substr(4, type_name.size() - 5));
+		if (args.size() != 2) {
+			return LogicalType::VARCHAR;
+		}
+		return LogicalType::MAP(ParseChildType(args[0]), ParseChildType(args[1]));
+	}
 
 	if (type_upper == "BOOLEAN") {
 		return LogicalType::BOOLEAN;
@@ -977,6 +988,16 @@ LogicalType AltertableUtils::TypeToLogicalType(const AltertableTypeData &type_in
 		if (type_info.numeric_precision > 0) {
 			return LogicalType::DECIMAL(type_info.numeric_precision, type_info.numeric_scale);
 		}
+		auto open = type_upper.find('(');
+		auto comma = type_upper.find(',');
+		auto close = type_upper.find(')');
+		if (open != string::npos && comma > open && close > comma) {
+			int32_t width = atoi(type_upper.c_str() + open + 1);
+			int32_t scale = atoi(type_upper.c_str() + comma + 1);
+			if (width > 0) {
+				return LogicalType::DECIMAL(width, scale);
+			}
+		}
 		return LogicalType::DOUBLE;
 	} else if (type_upper == "JSON") {
 		return LogicalType::JSON();
@@ -998,9 +1019,6 @@ LogicalType AltertableUtils::TypeToLogicalType(const AltertableTypeData &type_in
 		return LogicalType::INTERVAL;
 	} else if (type_upper == "UUID") {
 		return LogicalType::UUID;
-	} else if (StringUtil::StartsWith(type_upper, "STRUCT(") || StringUtil::StartsWith(type_upper, "MAP(") ||
-	           StringUtil::EndsWith(type_upper, "[]")) {
-		return UnquoteNestedTypeNames(DBConfig::ParseLogicalType(type_name));
 	} else {
 		return LogicalType::VARCHAR;
 	}
