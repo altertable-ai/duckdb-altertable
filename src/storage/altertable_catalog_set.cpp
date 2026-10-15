@@ -51,8 +51,13 @@ void AltertableCatalogSet::TryLoadEntries(AltertableTransaction &transaction) {
 	if (is_loaded) {
 		return;
 	}
-	is_loaded = true;
-	LoadEntries(transaction);
+	try {
+		LoadEntries(transaction);
+		is_loaded = true;
+	} catch (...) {
+		ClearEntries();
+		throw;
+	}
 }
 
 optional_ptr<CatalogEntry> AltertableCatalogSet::ReloadEntry(AltertableTransaction &transaction, const string &name) {

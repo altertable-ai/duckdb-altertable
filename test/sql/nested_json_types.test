@@ -1,0 +1,44 @@
+# name: test/sql/nested_json_types.test
+# description: Nested JSON and DECIMAL catalog types must load without INTERNAL errors
+# group: [sql]
+
+require altertable
+
+require-env ALTERTABLE_TEST_HOST
+
+require-env ALTERTABLE_TEST_PORT
+
+require-env ALTERTABLE_TEST_USER
+
+require-env ALTERTABLE_TEST_PASSWORD
+
+require-env ALTERTABLE_TEST_SSL
+
+statement ok
+ATTACH 'host=${ALTERTABLE_TEST_HOST} port=${ALTERTABLE_TEST_PORT} user=${ALTERTABLE_TEST_USER} password=${ALTERTABLE_TEST_PASSWORD} ssl=${ALTERTABLE_TEST_SSL}' AS nested_json_db (TYPE ALTERTABLE)
+
+statement ok
+CALL altertable_execute('nested_json_db', 'DROP TABLE IF EXISTS __nested_json_types')
+
+statement ok
+CALL altertable_execute('nested_json_db', 'CREATE TABLE __nested_json_types (j JSON, jl JSON[], s STRUCT("name" JSON, d DECIMAL(18,3)), m MAP(VARCHAR, JSON), dl DECIMAL(18,3)[])')
+
+statement error
+SELECT count(*) FROM nested_json_db.main.does_not_exist
+----
+does not exist
+
+query TT
+SELECT column_name, column_type FROM (DESCRIBE nested_json_db.main.__nested_json_types) ORDER BY column_name
+----
+dl	DECIMAL(18,3)[]
+j	JSON
+jl	JSON[]
+m	MAP(VARCHAR, JSON)
+s	STRUCT("name" JSON, d DECIMAL(18,3))
+
+statement ok
+CALL altertable_execute('nested_json_db', 'DROP TABLE __nested_json_types')
+
+statement ok
+DETACH nested_json_db
