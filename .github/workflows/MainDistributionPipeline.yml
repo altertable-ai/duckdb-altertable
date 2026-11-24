@@ -76,10 +76,10 @@ jobs:
 
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0-cyanoptera
-      ci_tools_version: main
+      duckdb_version: v2.0.1
+      ci_tools_version: v2.0-cyanoptera
       # vcpkg 2026.06.24 (the extension-ci-tools default) ships thrift 0.23, whose build passes --file-prefix-map to
       # bison; that needs bison >= 3.7 but the manylinux (el8) images only have bison 3.0.4.
       vcpkg_commit: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, thrift 0.22
@@ -92,10 +92,10 @@ jobs:
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0-cyanoptera
-      ci_tools_version: main
+      duckdb_version: v2.0.1
+      ci_tools_version: v2.0-cyanoptera
       extension_name: altertable
       # clang-tidy needs vcpkg (Arrow); the reusable workflow does not set up vcpkg — see extension-tidy-check.
       format_checks: "format"
