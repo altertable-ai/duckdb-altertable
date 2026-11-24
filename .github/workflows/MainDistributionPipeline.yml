@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       altertable:
+        # Pinned on purpose; scripts/test_with_mock.sh reads this digest so local runs match CI.
+        # See that script for why :latest (DuckLake-backed since 2026-11-03) is not used yet.
         image: ghcr.io/altertable-ai/altertable-mock@sha256:9f9df026fbd6c31dee9242309417d4fe4c7376cd19f9c68a3d3f1d28d5a03d1d
         ports:
           - 15002:15002
