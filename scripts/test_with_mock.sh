@@ -8,7 +8,33 @@
 
 set -euo pipefail
 
-MOCK_IMAGE="ghcr.io/altertable-ai/altertable-mock:latest"
+cd "$(dirname "$0")/.."
+
+# Use the exact mock image CI uses, so local runs match CI. The digest lives in
+# the workflow's service definition; bump it there (and only there).
+#
+# Do not switch this to :latest. The mock rebuilt on 2026-11-03
+# (sha256:41fcad62...) is backed by DuckLake and breaks the suite for
+# server-side reasons, not extension bugs:
+#   - `UPDATE ... RETURNING` is rejected ("RETURNING clause not yet supported
+#     for updates of a DuckLake table");
+#   - HUGEINT values lose precision because DuckDB's Parquet writer stores
+#     HUGEINT as DOUBLE;
+#   - concurrent writes from parallel test workers fail to commit ("Exceeded the
+#     maximum retry count ... ducklake_max_retry_count").
+#
+# To try another image, set ALTERTABLE_MOCK_IMAGE, e.g.
+#   ALTERTABLE_MOCK_IMAGE=ghcr.io/altertable-ai/altertable-mock:latest make test-mock
+CI_WORKFLOW=".github/workflows/MainDistributionPipeline.yml"
+if [[ -n "${ALTERTABLE_MOCK_IMAGE:-}" ]]; then
+  MOCK_IMAGE="${ALTERTABLE_MOCK_IMAGE}"
+else
+  MOCK_IMAGE=$(grep -oE 'ghcr\.io/altertable-ai/altertable-mock@sha256:[0-9a-f]{64}' "${CI_WORKFLOW}" | head -n 1 || true)
+  if [[ -z "${MOCK_IMAGE}" ]]; then
+    echo "ERROR: could not find the pinned altertable-mock image in ${CI_WORKFLOW}." >&2
+    exit 1
+  fi
+fi
 MOCK_USER="${ALTERTABLE_MOCK_USER:-testuser}"
 MOCK_PASS="${ALTERTABLE_MOCK_PASS:-testpass}"
 MOCK_PORT=15002
@@ -27,7 +53,7 @@ else
     exit 1
   fi
 
-  # Pull the latest image
+  # Pull the mock image
   echo "==> Pulling ${MOCK_IMAGE} ..."
   docker pull "${MOCK_IMAGE}"
 
