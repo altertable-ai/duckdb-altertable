@@ -11,19 +11,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Use the exact mock image CI uses, so local runs match CI. The digest lives in
-# the workflow's service definition; bump it there (and only there).
-#
-# Do not switch this to :latest. The mock rebuilt on 2026-11-03
-# (sha256:41fcad62...) is backed by DuckLake and breaks the suite for
-# server-side reasons, not extension bugs:
-#   - `UPDATE ... RETURNING` is rejected ("RETURNING clause not yet supported
-#     for updates of a DuckLake table");
-#   - HUGEINT values lose precision because DuckDB's Parquet writer stores
-#     HUGEINT as DOUBLE;
-#   - concurrent writes from parallel test workers fail to commit ("Exceeded the
-#     maximum retry count ... ducklake_max_retry_count").
-#
-# To try another image, set ALTERTABLE_MOCK_IMAGE, e.g.
+# the workflow's service definition; bump it there (and only there). To try
+# another image, set ALTERTABLE_MOCK_IMAGE, e.g.
 #   ALTERTABLE_MOCK_IMAGE=ghcr.io/altertable-ai/altertable-mock:latest make test-mock
 CI_WORKFLOW=".github/workflows/MainDistributionPipeline.yml"
 if [[ -n "${ALTERTABLE_MOCK_IMAGE:-}" ]]; then
@@ -114,5 +103,8 @@ if [[ $# -gt 0 ]]; then
   # Run a single test file directly via the unittest binary
   ./build/release/test/unittest "$@"
 else
-  make test
+  # One test worker: the mock (like hosted Altertable) stores tables in DuckLake,
+  # and concurrent writes from parallel test workers exhaust DuckLake's commit
+  # retries ("Exceeded the maximum retry count ... ducklake_max_retry_count").
+  make test TEST_RUNNER="python3 ./duckdb/scripts/ci/run_tests.py --workers 1"
 fi

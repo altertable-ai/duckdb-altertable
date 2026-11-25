@@ -232,11 +232,28 @@ RETURNING target.id
 ----
 UPDATE ... RETURNING is not supported for Altertable attached tables; use altertable_execute() to forward a remote UPDATE statement
 
-query IT
+# Fully remote UPDATE/DELETE ... RETURNING is forwarded verbatim. DuckLake (the Altertable storage
+# layer) does not support RETURNING on UPDATE or DELETE yet, so the server rejects it.
+# The server error comes back with gRPC status INTERNAL; only fail on DuckDB internal errors here.
+set always_fail_error_messages INTERNAL Error
+
+statement error
 UPDATE write_db.main.__attached_writes
 SET name = 'qualified'
 WHERE write_db.main.__attached_writes.id = 3
 RETURNING write_db.main.__attached_writes.id, name
+----
+RETURNING clause not yet supported for updates of a DuckLake table
+
+query I
+UPDATE write_db.main.__attached_writes
+SET name = 'qualified'
+WHERE write_db.main.__attached_writes.id = 3
+----
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 3
 ----
 3	qualified
 
@@ -250,40 +267,63 @@ WHERE id = 3
       ORDER BY write_db.main.__attached_remote_insert_src.id DESC
       LIMIT 1
   )
-RETURNING id
 ----
-3
+1
+
+query IT
+SELECT id, name FROM write_db.main.__attached_writes WHERE id = 3
+----
+3	modifier
+
+query I
+UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 3
+----
+1
 
 query ITR
-UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 3 RETURNING *
+SELECT * FROM write_db.main.__attached_writes WHERE id = 3
 ----
 3	invalid	NULL
 
-query I
+statement error
 DELETE FROM write_db.main.__attached_writes WHERE id = 3 RETURNING id
 ----
-3
+RETURNING clause not yet supported for deletion of a DuckLake table
 
-query IT
-UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 999 RETURNING id, name
+query I
+DELETE FROM write_db.main.__attached_writes WHERE id = 3
 ----
+1
 
-query IT
+query I
+UPDATE write_db.main.__attached_writes SET name = 'invalid' WHERE id = 999
+----
+0
+
+query I
 UPDATE write_db.main.__attached_writes AS target
 SET name = source.name
 FROM write_db.main.__attached_remote_insert_src AS source
 WHERE target.id = 4 AND source.id = 2
-RETURNING target.id + 1 AS next_id, target.name AS copied_name
+----
+1
+
+query IT
+SELECT id + 1 AS next_id, name AS copied_name FROM write_db.main.__attached_writes WHERE id = 4
 ----
 5	from-two
 
-query IT
+query I
 DELETE FROM write_db.main.__attached_writes AS target
 USING write_db.main.__attached_remote_insert_src AS source
 WHERE target.id = 4 AND source.id = 2
-RETURNING target.id, target.name
 ----
-4	from-two
+1
+
+query I
+SELECT COUNT(*) FROM write_db.main.__attached_writes WHERE id = 4
+----
+0
 
 statement error
 UPDATE write_db.main.__attached_writes AS target

@@ -41,15 +41,24 @@ hi	HUGEINT
 t	TINYINT
 ub	UBIGINT
 
-# HUGEINT precision: 2^53+1 cannot be represented as DOUBLE (rounds to 2^53).
-# If the remote stored DOUBLE instead of HUGEINT this round-trip would lose the last bit.
+# HUGEINT range: 2^64 does not fit in BIGINT or UBIGINT, so a downgraded column would fail or
+# overflow. DuckLake (the Altertable storage layer) writes data to Parquet, and DuckDB's Parquet
+# writer stores HUGEINT as DOUBLE, so stored values beyond 2^53 are not exact server-side. Use a
+# power of two, which round-trips exactly.
 statement ok
-INSERT INTO native_db.main.__native_types VALUES (127, 9007199254740993, 18446744073709551615, '\xDE\xAD\xBE\xEF')
+INSERT INTO native_db.main.__native_types VALUES (127, 18446744073709551616, 18446744073709551615, '\xDE\xAD\xBE\xEF')
 
 query IIIT
 SELECT t, hi, ub, b FROM native_db.main.__native_types
 ----
-127	9007199254740993	18446744073709551615	\xDE\xAD\xBE\xEF
+127	18446744073709551616	18446744073709551615	\xDE\xAD\xBE\xEF
+
+# HUGEINT precision on the extension's read path: 2^53+1 rounds to 2^53 as a DOUBLE, so this
+# fails if the Arrow conversion goes through a double.
+query I
+SELECT * FROM altertable_query('native_db', 'SELECT 9007199254740993::HUGEINT')
+----
+9007199254740993
 
 statement ok
 CALL altertable_execute('native_db', 'DROP TABLE __native_types')
