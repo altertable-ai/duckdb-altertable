@@ -8,7 +8,22 @@
 
 set -euo pipefail
 
-MOCK_IMAGE="ghcr.io/altertable-ai/altertable-mock:latest"
+cd "$(dirname "$0")/.."
+
+# Use the exact mock image CI uses, so local runs match CI. The digest lives in
+# the workflow's service definition; bump it there (and only there). To try
+# another image, set ALTERTABLE_MOCK_IMAGE, e.g.
+#   ALTERTABLE_MOCK_IMAGE=ghcr.io/altertable-ai/altertable-mock:latest make test-mock
+CI_WORKFLOW=".github/workflows/MainDistributionPipeline.yml"
+if [[ -n "${ALTERTABLE_MOCK_IMAGE:-}" ]]; then
+  MOCK_IMAGE="${ALTERTABLE_MOCK_IMAGE}"
+else
+  MOCK_IMAGE=$(grep -oE 'ghcr\.io/altertable-ai/altertable-mock@sha256:[0-9a-f]{64}' "${CI_WORKFLOW}" | head -n 1 || true)
+  if [[ -z "${MOCK_IMAGE}" ]]; then
+    echo "ERROR: could not find the pinned altertable-mock image in ${CI_WORKFLOW}." >&2
+    exit 1
+  fi
+fi
 MOCK_USER="${ALTERTABLE_MOCK_USER:-testuser}"
 MOCK_PASS="${ALTERTABLE_MOCK_PASS:-testpass}"
 MOCK_PORT=15002
@@ -27,7 +42,7 @@ else
     exit 1
   fi
 
-  # Pull the latest image
+  # Pull the mock image
   echo "==> Pulling ${MOCK_IMAGE} ..."
   docker pull "${MOCK_IMAGE}"
 
@@ -88,5 +103,8 @@ if [[ $# -gt 0 ]]; then
   # Run a single test file directly via the unittest binary
   ./build/release/test/unittest "$@"
 else
-  make test
+  # One test worker: the mock (like hosted Altertable) stores tables in DuckLake,
+  # and concurrent writes from parallel test workers exhaust DuckLake's commit
+  # retries ("Exceeded the maximum retry count ... ducklake_max_retry_count").
+  make test TEST_RUNNER="python3 ./duckdb/scripts/ci/run_tests.py --workers 1"
 fi

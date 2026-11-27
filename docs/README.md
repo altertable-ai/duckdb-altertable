@@ -255,6 +255,8 @@ Build outputs:
 make test-mock
 ```
 
+`make test-mock` uses the same pinned `altertable-mock` image digest as CI (read from `.github/workflows/MainDistributionPipeline.yml`) and runs the suite with one test worker: the mock stores tables in DuckLake, like hosted Altertable, and parallel writers exhaust DuckLake's commit retries. To try another image, set `ALTERTABLE_MOCK_IMAGE`, for example `ALTERTABLE_MOCK_IMAGE=ghcr.io/altertable-ai/altertable-mock:latest make test-mock`.
+
 For a manual server (no Docker), set the variables yourself, for example:
 
 ```bash

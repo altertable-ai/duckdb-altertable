@@ -17,7 +17,9 @@ jobs:
     runs-on: ubuntu-24.04
     services:
       altertable:
-        image: ghcr.io/altertable-ai/altertable-mock@sha256:9f9df026fbd6c31dee9242309417d4fe4c7376cd19f9c68a3d3f1d28d5a03d1d
+        # Pinned on purpose (DuckLake-backed, DuckDB 2.0.1 build from 2026-11-26); scripts/test_with_mock.sh reads
+        # this digest so local `make test-mock` runs match CI. Bump it here only.
+        image: ghcr.io/altertable-ai/altertable-mock@sha256:778dfc3a92399a93c2e4970a6501edb7324a8fcddc454312454493c3f35557a3
         ports:
           - 15002:15002
         env:
@@ -72,14 +74,14 @@ jobs:
           exit 1
 
       - name: Test
-        run: make test
+        run: ./scripts/test_with_mock.sh
 
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0-cyanoptera
-      ci_tools_version: main
+      duckdb_version: v2.0.1
+      ci_tools_version: v2.0-cyanoptera
       # vcpkg 2026.06.24 (the extension-ci-tools default) ships thrift 0.23, whose build passes --file-prefix-map to
       # bison; that needs bison >= 3.7 but the manylinux (el8) images only have bison 3.0.4.
       vcpkg_commit: 84bab45d415d22042bd0b9081aea57f362da3f35 # 2025.12.12, thrift 0.22
@@ -92,10 +94,10 @@ jobs:
 
   code-quality-check:
     name: Code Quality Check
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0-cyanoptera
-      ci_tools_version: main
+      duckdb_version: v2.0.1
+      ci_tools_version: v2.0-cyanoptera
       extension_name: altertable
       # clang-tidy needs vcpkg (Arrow); the reusable workflow does not set up vcpkg — see extension-tidy-check.
       format_checks: "format"
